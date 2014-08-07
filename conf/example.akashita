@@ -1,0 +1,54 @@
+#
+# Example Akashita configuration file
+#
+[aws]
+#
+# Amazon Web Services credentials
+#
+access_key = your_access_key
+secret_key = your_secret_key
+region_name = your_region
+
+[schedule]
+#
+# 'go_time' specifies a set of available time windows for uploading archives
+# In this example, uploads during 10pm to 6am and 10am to 4pm, local time.
+#
+go_time = 22:00-06:00,10:00-16:00
+
+[paths]
+#
+# 'tmpdir' is where tarballs will be created
+#
+tmpdir = /rpool/glacier
+
+#
+# Section names beginning with 'vault_' indicate a Glacier vault to be
+# created, whose contents are as described within the section. The vault name
+# will have the current date appended (e.g. "shared-2014-07-14").
+#
+[vault_shared]
+
+#
+# 'fs_path' names the ZFS filesystem containing the paths to be archived.
+#
+fs_path = tank/shared
+
+# 'clone_base' specifies where ZFS clones will be created. They must reside
+# within the same ZFS hierarchy as the fs_path.
+clone_base = tank/glacier
+
+#
+# Option names beginning with 'archive_' list files and directories that will
+# be bundled together as a compressed tar files (which will be split into more
+# manageable sizes).
+#
+archive_misc = Artwork,
+	       Books,
+	       Manuals,
+	       Projects,
+	       Sounds
+
+archive_pictures = Pictures
+
+archive_movies = Movies
