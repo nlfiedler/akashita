@@ -1,0 +1,13 @@
+#
+# Vagrantfile for [OpenIndiana](http://openindiana.org) VM.
+#
+Vagrant.configure('2') do |config|
+
+  config.vm.box = 'oi151a9'
+
+  # config.vm.network 'forwarded_port', guest: 80, host: 8080
+  config.vm.synced_folder '..', '/vagrant_data'
+
+  config.vbguest.auto_update = false
+
+end
