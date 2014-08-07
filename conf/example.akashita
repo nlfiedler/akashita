@@ -44,10 +44,10 @@ clone_base = tank/glacier
 # manageable sizes).
 #
 archive_misc = Artwork,
-	       Books,
-	       Manuals,
-	       Projects,
-	       Sounds
+               Books,
+               Manuals,
+               Projects,
+               Sounds
 
 archive_pictures = Pictures
 
