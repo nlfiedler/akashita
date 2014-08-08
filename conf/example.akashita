@@ -9,6 +9,18 @@ access_key = your_access_key
 secret_key = your_secret_key
 region_name = your_region
 
+[logging]
+#
+# file: name and location to which the log is written
+#
+file = /var/log/akashita.log
+
+#
+# format: the logging format, see the 'logging' standard Python module
+# (default: '[%(process)d] <%(asctime)s> (%(name)s) {%(levelname)s} %(message)s')
+#
+format = '[%(process)d] <%(asctime)s> (%(name)s) {%(levelname)s} %(message)s'
+
 [schedule]
 #
 # 'go_time' specifies a set of available time windows for uploading archives
@@ -35,7 +47,7 @@ tmpdir = /rpool/glacier
 fs_path = tank/shared
 
 # 'clone_base' specifies where ZFS clones will be created. They must reside
-# within the same ZFS hierarchy as the fs_path.
+# within the same pool as the fs_path file system.
 clone_base = tank/glacier
 
 #
