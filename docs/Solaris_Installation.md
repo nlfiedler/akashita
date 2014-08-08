@@ -1,8 +1,10 @@
 # Solaris Installation Guide
 
+Running boto in Python 3.2 on OpenIndiana seems to fail badly, probably because it is not really converted to Python3 semantics properly (for one thing, it seems to incorrectly mix strings and byte buffers). As such, we need to build and install Python 2.7.
+
 ## Development Tools
 
-We will need these packages for building Git from source.
+We will need these packages for building Python from source.
 
 ```
 $ pfexec pkg install developer/illumos-gcc
@@ -11,44 +13,52 @@ $ pfexec pkg install system/header
 $ pfexec pkg install system/library/math/header-math
 $ pfexec pkg install developer/library/lint
 $ pfexec pkg install compatibility/ucb
-$ export PATH=/opt/gcc/4.4.4/bin:$PATH
 ```
 
-## Git
+Then update the paths so the new bits can be found.
 
-Get the latest source tarball for Git to avoid the very outdated Git package.
+```
+$ export PATH=/opt/gcc/4.4.4/bin:$PATH
+$ pfexec crle -u -l /opt/gcc/4.4.4/lib
+```
+
+## Python 2.7
+
+Get the latest Python 2.7 source tarball and build like so.
 
 ```
 $ ./configure
 $ make
 $ pfexec make install
+```
+
+Then update your path so the new Python can be found.
+
+```
 $ export PATH=/usr/local/bin:$PATH
 ```
 
-## Python 3.x
+## pip
+
+Using [pip](http://pip-installer.org) makes it easy to install Python packages.
 
 ```
-$ pfexec pkg set-publisher -p http://pkg.openindiana.org/sfe
-$ pfexec pkg install runtime/python-32
+$ wget --no-check-certificate https://bootstrap.pypa.io/get-pip.py
+$ pfexec python2.7 get-pip.py
 ```
 
 ## boto
 
-For boto, we will have to perform the 2-to-3 conversion prior to installation.
+And now installing [boto](http://github.com/boto/boto) is easy with pip.
 
 ```
-$ git clone git://github.com/boto/boto.git
-$ cd boto
-$ git checkout 2.32.1
-$ 2to3 -w .
-$ python3 setup.py build
-$ pfexec python3 setup.py install
+$ pfexec pip2.7 install boto
 ```
 
 Now we can test the installation to ensure it basically works.
 
 ```
-$ python3
+$ python2.7
 >>> import boto
 >>> import boto.glacier
 >>> boto.glacier.regions()
