@@ -59,7 +59,6 @@ Now we can test the installation to ensure it basically works.
 
 ```
 $ python2.7
->>> import boto
 >>> import boto.glacier
 >>> boto.glacier.regions()
 ```
