@@ -6,9 +6,9 @@ import argparse
 import logging
 import os
 import sys
-import tempfile
 
 import boto.glacier
+from boto.glacier.exceptions import UnexpectedHTTPResponseError
 import boto.glacier.layer2
 import boto.glacier.vault
 
@@ -68,10 +68,13 @@ def _request_inventory(layer2_obj, vault_name):
     :param vault_name: name of the Glacier vault to query.
 
     """
-    response_data = layer2_obj.layer1.describe_vault(vault_name)
-    vault_obj = boto.glacier.vault.Vault(layer2_obj.layer1, response_data)
-    job_id = vault_obj.retrieve_inventory()
-    print("Job ID: {}".format(job_id))
+    try:
+        response_data = layer2_obj.layer1.describe_vault(vault_name)
+        vault_obj = boto.glacier.vault.Vault(layer2_obj.layer1, response_data)
+        job_id = vault_obj.retrieve_inventory()
+        print("Job ID: {}".format(job_id))
+    except UnexpectedHTTPResponseError:
+        sys.stderr.write('No such vault!\n')
 
 
 def _print_job(job_obj, print_id=False):
@@ -108,10 +111,17 @@ def _query_job_status(layer2_obj, job_id, vault_name):
     :param vault_name: name of vault for which to list jobs.
 
     """
-    response_data = layer2_obj.layer1.describe_vault(vault_name)
+    try:
+        response_data = layer2_obj.layer1.describe_vault(vault_name)
+    except UnexpectedHTTPResponseError:
+        sys.stderr.write('No such vault!\n')
+        return
     vault_obj = boto.glacier.vault.Vault(layer2_obj.layer1, response_data)
-    job_obj = vault_obj.get_job(job_id)
-    _print_job(job_obj)
+    try:
+        job_obj = vault_obj.get_job(job_id)
+        _print_job(job_obj)
+    except UnexpectedHTTPResponseError:
+        sys.stderr.write('No such job for this vault!\n')
 
 
 def _list_vault_jobs(layer2_obj):
@@ -127,13 +137,16 @@ def _list_vault_jobs(layer2_obj):
         vault_obj = boto.glacier.vault.Vault(layer2_obj.layer1, response_data)
         jobs = vault_obj.list_jobs()
         if jobs:
+            print("-"*70)
+            print('Jobs for vault {}...'.format(vault.name))
             for job_obj in jobs:
-                print("-"*70)
+                print('')
                 _print_job(job_obj, print_id=True)
+                print('')
 
 
-def _save_job_output(layer2_obj, job_id, vault_name):
-    """Retrieve the output of a job and save to a file.
+def _print_job_output(layer2_obj, job_id, vault_name):
+    """Retrieve the output of an inventory retrieval job.
 
     :type layer2_obj: :class:`glacier.layer2.Layer2`
     :param layer2_obj: Layer2 API instance
@@ -145,9 +158,17 @@ def _save_job_output(layer2_obj, job_id, vault_name):
     :param vault_name: name of vault associated with the given job.
 
     """
-    response_data = layer2_obj.layer1.describe_vault(vault_name)
+    try:
+        response_data = layer2_obj.layer1.describe_vault(vault_name)
+    except UnexpectedHTTPResponseError:
+        sys.stderr.write('No such vault!\n')
+        return
     vault_obj = boto.glacier.vault.Vault(layer2_obj.layer1, response_data)
-    job_obj = vault_obj.get_job(job_id)
+    try:
+        job_obj = vault_obj.get_job(job_id)
+    except UnexpectedHTTPResponseError:
+        sys.stderr.write('No such job for this vault!\n')
+        return
     if job_obj.completed:
         if job_obj.action == 'InventoryRetrieval':
             output_map = job_obj.get_output()
@@ -155,18 +176,20 @@ def _save_job_output(layer2_obj, job_id, vault_name):
             output_keys.sort()
             for output_key in output_keys:
                 if output_key == 'ArchiveList':
-                    print(output_key)
-                    for archive_map in output_map[output_key]:
-                        archive_keys = archive_map.keys()
-                        archive_keys.sort()
-                        for archive_key in archive_keys:
-                            print("\t{}: {}".format(archive_key, archive_map[archive_key]))
+                    if output_map[output_key]:
+                        print(output_key)
+                        for archive_map in output_map[output_key]:
+                            archive_keys = archive_map.keys()
+                            archive_keys.sort()
+                            for archive_key in archive_keys:
+                                print("\t{}: {}".format(archive_key, archive_map[archive_key]))
+                    else:
+                        print("ArchiveList: (empty)")
                 else:
                     print("{}: {}".format(output_key, output_map[output_key]))
         else:
-            _, filename = tempfile.mkstemp(suffix='.dat', prefix='job_output', dir=os.getcwd())
-            job_obj.download_to_file(filename)
-            print("Job output saved to {}".format(filename))
+            print("Do not know what to do with this job:")
+            print(job_obj.get_output())
     else:
         print("Job not yet completed!")
 
@@ -182,7 +205,7 @@ def main():
     parser.add_argument('-I', '--inventory',
                         help='request inventory of named vault')
     parser.add_argument('-L', '--joblist', action='store_true',
-                        help='list of jobs for named vault')
+                        help='list of jobs for all vaults')
     parser.add_argument('-S', '--status', metavar='JOBID',
                         help='query status of job')
     parser.add_argument('-O', '--output', metavar='JOBID',
@@ -216,7 +239,7 @@ def main():
         if args.vault is None:
             sys.stderr.write('The vault name is required for getting job output.\n')
             sys.exit(1)
-        _save_job_output(layer2_obj, args.output, args.vault)
+        _print_job_output(layer2_obj, args.output, args.vault)
     elif args.joblist:
         _list_vault_jobs(layer2_obj)
     else:

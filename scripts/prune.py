@@ -6,6 +6,7 @@ import logging
 import os
 import sys
 
+from boto.glacier.exceptions import UnexpectedHTTPResponseError
 import boto.glacier.layer2
 
 try:
@@ -30,9 +31,17 @@ def _empty_vault(layer2_obj, job_id, vault_name):
     :param vault_name: name of vault associated with the given job.
 
     """
-    response_data = layer2_obj.layer1.describe_vault(vault_name)
+    try:
+        response_data = layer2_obj.layer1.describe_vault(vault_name)
+    except UnexpectedHTTPResponseError:
+        sys.stderr.write('No such vault!\n')
+        return
     vault_obj = boto.glacier.vault.Vault(layer2_obj.layer1, response_data)
-    job_obj = vault_obj.get_job(job_id)
+    try:
+        job_obj = vault_obj.get_job(job_id)
+    except UnexpectedHTTPResponseError:
+        sys.stderr.write('No such job for this vault!\n')
+        return
     if job_obj.completed:
         if job_obj.action == 'InventoryRetrieval':
             output_map = job_obj.get_output()
@@ -60,9 +69,17 @@ def _delete_vault(layer2_obj, job_id, vault_name):
     :param vault_name: name of vault associated with the given job.
 
     """
-    response_data = layer2_obj.layer1.describe_vault(vault_name)
+    try:
+        response_data = layer2_obj.layer1.describe_vault(vault_name)
+    except UnexpectedHTTPResponseError:
+        sys.stderr.write('No such vault!\n')
+        return
     vault_obj = boto.glacier.vault.Vault(layer2_obj.layer1, response_data)
-    job_obj = vault_obj.get_job(job_id)
+    try:
+        job_obj = vault_obj.get_job(job_id)
+    except UnexpectedHTTPResponseError:
+        sys.stderr.write('No such job for this vault!\n')
+        return
     if job_obj.completed:
         if job_obj.action == 'InventoryRetrieval':
             vault_obj.delete()
