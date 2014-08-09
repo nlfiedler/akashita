@@ -1,9 +1,17 @@
 #!/usr/bin/env python2.7
+# -*- coding: utf-8 -*-
 """Creates archives and uploads them to Amazon Glacier.
 
 Based on a configuration file, takes a ZFS snapshot and creates one or more
 compressed archives, splits them into manageable pieces, and uploads them
 to Glacier.
+
+To test this script, create a disposable ZFS filesystem using the `mkfile`
+command, like so:
+
+$ mkfile 256m tank
+$ pfexec zpool create tank $PWD/tank
+$ pfexec zfs create tank/shared
 
 Requires that xz is installed for compressing the tarballs (i.e. this
 script invokes `tar Jc` in a child process).
@@ -12,8 +20,6 @@ Requires Amazon Web Services module boto (https://github.com/boto/boto)
 
 """
 
-import argparse
-import ConfigParser
 from contextlib import contextmanager
 from datetime import datetime
 import logging
@@ -23,66 +29,29 @@ import subprocess
 import sys
 import time
 
-import boto.glacier
 import boto.glacier.layer2
 import boto.glacier.vault
 
-#
-#    AT&T U-verse "Max" speeds
-# Downstream: 12 Mb/s => 1536 KB/s
-# Upstream  :  2 Mb/s =>  212 KB/s
-#
-# Archives consist of compressed tarballs split into parts of 128 MB each.
-# Each part 128 MB will take ~10 minutes to upload.
-#
-# TODO: set up SMF to restart the process
-# TODO: configure LogWatch to email daily report
-# TODO: configure log rotation
-#
-# To test this script, create a disposable ZFS filesystem using the
-# mkfile command, like so:
-#
-# $ mkfile 256m tank
-# $ pfexec zpool create tank $PWD/tank
-# $ pfexec zfs create tank/shared
-#
+try:
+    import akashita
+except ImportError:
+    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+    import akashita
+
 
 VAULT_PREFIX = 'vault_'
 ARCHIVE_PREFIX = 'archive_'
 
 LOG = logging.getLogger('akashita')
-LOG_FORMAT = '[%(process)d] <%(asctime)s> (%(name)s) {%(levelname)s} %(message)s'
-LOG_FILE = 'akashita.log'
-
-
-def _configure_logging(config):
-    """Configure the logger for our purposes.
-
-    :param config: ConfigParser instance with akashita configuration.
-
-    """
-    LOG.setLevel(logging.DEBUG)
-    if config.has_option('logging', 'file'):
-        log_file = config.get('logging', 'file')
-    else:
-        log_file = LOG_FILE
-    handler = logging.FileHandler(log_file)
-    handler.setLevel(logging.DEBUG)
-    if config.has_option('logging', 'format'):
-        log_format = config.get('logging', 'format')
-    else:
-        log_format = LOG_FORMAT
-    formatter = logging.Formatter(log_format)
-    handler.setFormatter(formatter)
-    LOG.addHandler(handler)
 
 
 def _ensure_snapshot_exists(prefix):
     """Create the ZFS snapshot, if it is missing.
 
-    :param prefix: name prefix of the snapshot to create.
+    :type prefix: str
+    :param prefix: name prefix of the snapshot to create
 
-    Returns the full name of the snapshot.
+    :return: full name of the snapshot
 
     """
     tag = datetime.utcnow().strftime("%Y-%m-%d")
@@ -108,8 +77,11 @@ def _ensure_snapshot_exists(prefix):
 def _ensure_clone_exists(clone, snapshot):
     """Create the ZFS clone, if it is missing.
 
-    :param clone: name of the ZFS clone to create.
-    :param snapshot: name of the ZFS snapshot on which to base the clone.
+    :type clone: str
+    :param clone: name of the ZFS clone to create
+
+    :type clone: str
+    :param snapshot: name of the ZFS snapshot on which to base the clone
 
     """
     proc = subprocess.Popen(['zfs', 'list', '-H', clone],
@@ -132,7 +104,8 @@ def _ensure_clone_exists(clone, snapshot):
 def _destroy_zfs_object(fsobj):
     """Destroy the named ZFS data set.
 
-    :param fsobj: name of ZFS data set to destroy.
+    :type fsobj: str
+    :param fsobj: name of ZFS data set to destroy
 
     """
     LOG.debug('_destroy_zfs_object() destroying {}'.format(fsobj))
@@ -149,9 +122,7 @@ def _destroy_zfs_object(fsobj):
 
 @contextmanager
 def pop_chdir(path):
-    """
-    Context manager to temporarily change to the given directory.
-    """
+    """Context manager to temporarily change to the given directory."""
     cwd = os.getcwd()
     os.chdir(path)
     try:
@@ -163,9 +134,11 @@ def pop_chdir(path):
 def _is_go_time(config):
     """Determine if current time within upload window.
 
-    :param config: ConfigParser instance with akashita configuration.
+    :type config: ConfigParser.ConfigParser
+    :param config: akashita configuration
 
-    Returns True if current time within upload window, False otherwise.
+    :rtype: bool
+    :return: True if current time within upload window, False otherwise
 
     """
     now = time.localtime()
@@ -186,17 +159,21 @@ def _ensure_vault_exists(layer2_obj, prefix):
 
     This operation is idempotent.
 
-    :param layer2_obj: instance of glacier.layer2.Layer2()
-    :param prefix: name prefix for the vault to create.
+    :type layer2_obj: :class:`glacier.layer2.Layer2`
+    :param layer2_obj: Layer2 API instance
 
-    Returns the name of the vault and the Vault instance.
+    :type prefix: str
+    :param prefix: name prefix for the vault to create
+
+    :rtype: str
+    :return: the name of the vault and the Vault instance.
 
     """
     tag = datetime.utcnow().strftime("%Y-%m-%d")
     vault_name = '{}-{}'.format(prefix, tag)
     layer2_obj.layer1.create_vault(vault_name)
     response_data = layer2_obj.layer1.describe_vault(vault_name)
-    LOG.info('created Glacier vault {}'.format(vault_name))
+    LOG.info('created vault {}'.format(vault_name))
     vault_obj = boto.glacier.vault.Vault(layer2_obj.layer1, response_data)
     return vault_name, vault_obj
 
@@ -204,9 +181,14 @@ def _ensure_vault_exists(layer2_obj, prefix):
 def _create_archive(config, paths, archive_name):
     """Create the set of archive files to be uploaded to a vault.
 
-    :param config: ConfigParser instance with akashita configuration.
-    :param paths: list of paths to be archived.
-    :param archive_name: name prefix for the archive files.
+    :type config: ConfigParser.ConfigParser
+    :param config: akashita configuration
+
+    :type paths: list
+    :param paths: paths to be archived
+
+    :type archive_name: str
+    :param archive_name: name prefix for the archive files
 
     This function is a generator of the paths of the archive parts
     that were created.
@@ -227,7 +209,7 @@ def _create_archive(config, paths, archive_name):
                 tar = subprocess.Popen(['tar', 'Jc'] + paths,
                                        stdout=subprocess.PIPE,
                                        stderr=devnull)
-                split = subprocess.Popen(['split', '-b', '128m', '-', archive_name],
+                split = subprocess.Popen(['split', '-d', '-b', '128m', '-', archive_name],
                                          stdin=tar.stdout,
                                          stdout=subprocess.PIPE,
                                          stderr=devnull)
@@ -253,15 +235,22 @@ def _create_archive(config, paths, archive_name):
 def _process_vault(config, section, name, layer2_obj):
     """Perform the backup for a particular "vault".
 
-    :param config: ConfigParser instance with akashita configuration.
-    :param section: vault section from config.
-    :param name: name prefix of the vault to process.
-    :param layer2_obj: instance of glacier.layer2.Layer2()
+    :type config: ConfigParser.ConfigParser
+    :param config: akashita configuration
+
+    :type section: str
+    :param section: vault section from config
+
+    :type name: str
+    :param name: name prefix of the vault to process
+
+    :type layer2_obj: :class:`glacier.layer2.Layer2`
+    :param layer2_obj: Layer2 API instance
 
     """
     # ensure the vault exists
     vault_name, vault_obj = _ensure_vault_exists(layer2_obj, name)
-    LOG.info('Processing vault {}'.format(vault_name))
+    LOG.info('processing vault {}'.format(vault_name))
     # ensure a zfs snapshot exists
     fs_path = config.get(section, 'fs_path')
     snapshot_name = _ensure_snapshot_exists(fs_path)
@@ -280,8 +269,6 @@ def _process_vault(config, section, name, layer2_obj):
                 paths.append(os.path.join(clone_path, entry.strip()))
             archive_name = archive[len(ARCHIVE_PREFIX):]
             LOG.debug('_process_vault() processing archive {}'.format(archive_name))
-            # TODO: ideally would consult SimpleDB to know if this archive
-            #       has already been successfully uploaded to this vault
             parts_dir = None
             part_num = 1
             for part in _create_archive(config, paths, archive_name):
@@ -294,7 +281,7 @@ def _process_vault(config, section, name, layer2_obj):
                 start_time = time.time()
                 archive_id = vault_obj.upload_archive(part, desc)
                 elapsed = (time.time() - start_time) / 60
-                LOG.info('Uploaded archive {} to vault {} in {} minutes'.format(
+                LOG.info('uploaded archive {} to vault {} in {:.1f} minutes'.format(
                     archive_id, vault_name, elapsed))
                 # remove each part as it is uploaded
                 os.unlink(part)
@@ -304,80 +291,28 @@ def _process_vault(config, section, name, layer2_obj):
                 part_num += 1
             # remove the temporary working directory
             os.rmdir(parts_dir)
-            LOG.info('Finished archive {}'.format(archive_name))
-            # TODO: store archive metadata in SimpleDB for fast retrieval
+            LOG.info('finished archive {}'.format(archive_name))
     finally:
         _destroy_zfs_object(clone_name)
         _destroy_zfs_object(snapshot_name)
-    LOG.info('Processing vault {} completed'.format(vault_name))
+    LOG.info('processing vault {} completed'.format(vault_name))
 
 
-def _load_configuration():
-    """Find and load the configuration file."""
-    config = ConfigParser.ConfigParser()
-    fname = os.path.expanduser('~/.akashita')
-    if os.path.exists(fname):
-        LOG.debug('_load_configuration() reading {}'.format(fname))
-        config.read(fname)
-    elif os.path.exists('/etc/akashita'):
-        LOG.debug('_load_configuration() reading /etc/akashita')
-        config.read('/etc/akashita')
-    else:
-        LOG.error("Could not find configuration file!")
-        sys.stderr.write("Could not find configuration file!\n")
-        sys.exit(1)
-    return config
-
-
-def _prune_vaults(layer2_obj):
-    """Remove any vaults older than three months."""
-    # TODO: implement removal of old vaults
-    LOG.info('vault pruning not yet implemented')
-    for vault in layer2_obj.list_vaults():
-        # old = datetime.utcnow() - timedelta(100)
-        # '2013-11-17T07:40:39.798Z'
-        # vault_time_format = '%Y-%m-%dT%H:%M:%S.???'
-        # TODO: retrieve the vault inventory
-        # TODO: remove all of the archives contained therein
-        # TODO: retrieve inventory again to satisfy requirements
-        # TODO: delete the vault
-        pass
-
-
-def _perform_backup(config):
-    """Perform the backup procedure.
-
-    :param config: ConfigParser instance with akashita configuration.
-
-    """
+def main():
+    """Create archives and upload to vaults on Amazon Glacier."""
+    config = akashita.load_configuration(LOG)
+    akashita.configure_logging(LOG, config)
+    LOG.info('akashita process started')
     aws_access_key_id = config.get('aws', 'access_key')
     aws_secret_access_key = config.get('aws', 'secret_key')
     region_name = config.get('aws', 'region_name')
     layer2_obj = boto.glacier.layer2.Layer2(
         aws_access_key_id, aws_secret_access_key, region_name=region_name)
-
     is_vault = lambda n: n.startswith(VAULT_PREFIX)
     vaults = [n for n in config.sections() if is_vault(n)]
     for section_name in vaults:
         _process_vault(config, section_name, section_name[len(VAULT_PREFIX):], layer2_obj)
-    _prune_vaults(layer2_obj)
-
-
-def main():
-    """Do the thing."""
-    parser = argparse.ArgumentParser(description="Upload archives to Amazon Glacier.")
-    parser.add_argument("-R", "--regions", action='store_true',
-                        help="list available Amazon Glacier regions")
-    args = parser.parse_args()
-    if args.regions:
-        for reg_info in boto.glacier.regions():
-            print("Region: {}".format(reg_info.name))
-    else:
-        config = _load_configuration()
-        _configure_logging(config)
-        LOG.info('akashita process started')
-        _perform_backup(config)
-        LOG.info('akashita process exiting')
+    LOG.info('akashita process exiting')
 
 
 if __name__ == "__main__":
