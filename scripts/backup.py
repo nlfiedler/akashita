@@ -302,7 +302,7 @@ def main():
     """Create archives and upload to vaults on Amazon Glacier."""
     config = akashita.load_configuration(LOG)
     akashita.configure_logging(LOG, config)
-    LOG.info('akashita process started')
+    LOG.info('backup process started')
     aws_access_key_id = config.get('aws', 'access_key')
     aws_secret_access_key = config.get('aws', 'secret_key')
     region_name = config.get('aws', 'region_name')
@@ -312,7 +312,7 @@ def main():
     vaults = [n for n in config.sections() if is_vault(n)]
     for section_name in vaults:
         _process_vault(config, section_name, section_name[len(VAULT_PREFIX):], layer2_obj)
-    LOG.info('akashita process exiting')
+    LOG.info('backup process exiting')
 
 
 if __name__ == "__main__":
