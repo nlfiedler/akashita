@@ -62,15 +62,9 @@ def _ensure_snapshot_exists(prefix):
     proc.communicate()
     if proc.returncode != 0:
         LOG.debug('_ensure_snapshot_exists() creating {}'.format(snapshot))
-        proc = subprocess.Popen(['zfs', 'snapshot', snapshot],
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE)
-        out, err = proc.communicate()
-        if proc.returncode != 0:
-            LOG.error('zfs snapshot error: {}'.format(err))
-            raise RuntimeError('zfs snapshot failed')
-        else:
-            LOG.info('snapshot {} created'.format(snapshot))
+        subprocess.check_output(['zfs', 'snapshot', snapshot],
+                                stderr=subprocess.STDOUT)
+        LOG.info('snapshot {} created'.format(snapshot))
     return snapshot
 
 
@@ -90,15 +84,21 @@ def _ensure_clone_exists(clone, snapshot):
     proc.communicate()
     if proc.returncode != 0:
         LOG.debug('_ensure_clone_exists() creating {} from {}'.format(clone, snapshot))
-        proc = subprocess.Popen(['zfs', 'clone', '-p', snapshot, clone],
-                                stdout=subprocess.PIPE,
-                                stderr=subprocess.PIPE)
-        out, err = proc.communicate()
-        if proc.returncode != 0:
-            LOG.error('zfs clone error: {}'.format(err))
-            raise RuntimeError('zfs clone failed')
-        else:
-            LOG.info('clone {} created'.format(clone))
+        subprocess.check_output(['zfs', 'clone', '-p', snapshot, clone],
+                                stderr=subprocess.STDOUT)
+        LOG.info('clone {} created'.format(clone))
+
+
+def _disable_snapshots(dataset):
+    """Disable the creation of automatic snapshots for the named data set.
+
+    :type dataset: str
+    :param dataset: ZFS data set for which to disable snapshots.
+
+    """
+    LOG.debug('_disable_snapshots() disabling snapshots for {}'.format(dataset))
+    subprocess.check_output(['zfs', 'set', 'com.sun:auto-snapshot=false', dataset],
+                            stderr=subprocess.STDOUT)
 
 
 def _destroy_zfs_object(fsobj):
@@ -109,15 +109,9 @@ def _destroy_zfs_object(fsobj):
 
     """
     LOG.debug('_destroy_zfs_object() destroying {}'.format(fsobj))
-    proc = subprocess.Popen(['zfs', 'destroy', fsobj],
-                            stdout=subprocess.PIPE,
-                            stderr=subprocess.PIPE)
-    out, err = proc.communicate()
-    if proc.returncode != 0:
-        LOG.error('zfs destroy error: {}'.format(err))
-        raise RuntimeError('zfs destroy failed')
-    else:
-        LOG.info('zfs data set {} destroyed'.format(fsobj))
+    subprocess.check_output(['zfs', 'destroy', fsobj],
+                            stderr=subprocess.STDOUT)
+    LOG.info('zfs data set {} destroyed'.format(fsobj))
 
 
 @contextmanager
@@ -259,6 +253,7 @@ def _process_vault(config, section, name, layer2_obj):
     clone_name = clone_base + '/' + vault_name
     clone_path = '/' + clone_name
     _ensure_clone_exists(clone_name, snapshot_name)
+    _disable_snapshots(clone_name)
     try:
         # process each of the archives specified in the config file
         is_archive = lambda n: n.startswith(ARCHIVE_PREFIX)
@@ -311,7 +306,10 @@ def main():
     is_vault = lambda n: n.startswith(VAULT_PREFIX)
     vaults = [n for n in config.sections() if is_vault(n)]
     for section_name in vaults:
-        _process_vault(config, section_name, section_name[len(VAULT_PREFIX):], layer2_obj)
+        try:
+            _process_vault(config, section_name, section_name[len(VAULT_PREFIX):], layer2_obj)
+        except:
+            LOG.exception('vault processing failed for {}'.format(section_name))
     LOG.info('backup process exiting')
 
 
