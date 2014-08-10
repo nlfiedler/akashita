@@ -1,5 +1,17 @@
 #!/usr/bin/env python2.7
-"""Prune old vaults from Amazon Glacier."""
+"""Prune old vaults from Amazon Glacier.
+
+Use the query.py script to request the inventory of a vault before using
+this script to empty the vault. In fact, Amazon requires that you request
+the inventory of the _empty_ vault before you can actually delete the
+vault, hence the two separate command-line arguments for this script,
+--empty and --delete (the former removes the archives based on a completed
+job and the latter removes the empty vault, again based on a completed
+inventory retrieval job).
+
+Requires Amazon Web Services module boto (https://github.com/boto/boto)
+
+"""
 
 import argparse
 import logging

@@ -4,7 +4,7 @@
 
 Based on a configuration file, takes a ZFS snapshot and creates one or more
 compressed archives, splits them into manageable pieces, and uploads them
-to Glacier.
+to a new vault.
 
 To test this script, create a disposable ZFS filesystem using the `mkfile`
 command, like so:

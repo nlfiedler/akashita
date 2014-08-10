@@ -1,6 +1,14 @@
 #!/usr/bin/env python2.7
 # -*- coding: utf-8 -*-
-"""Query contents of vaults on Amazon Glacier."""
+"""Query contents of vaults on Amazon Glacier.
+
+This script is used to query most of the interesting data regarding vaults,
+including the list of vaults, inventory of vaults, and jobs related to
+vaults.
+
+Requires Amazon Web Services module boto (https://github.com/boto/boto)
+
+"""
 
 import argparse
 import logging
