@@ -13,6 +13,9 @@ $ mkfile 256m tank
 $ pfexec zpool create tank $PWD/tank
 $ pfexec zfs create tank/shared
 
+Using the `at` command makes it easy to start the backup process in the
+background with no controlling terminal.
+
 Requires that xz is installed for compressing the tarballs (i.e. this
 script invokes `tar Jc` in a child process).
 
@@ -20,8 +23,9 @@ Requires Amazon Web Services module boto (https://github.com/boto/boto)
 
 """
 
+import argparse
 from contextlib import contextmanager
-from datetime import datetime
+import datetime
 import logging
 import os
 import shutil
@@ -54,7 +58,7 @@ def _ensure_snapshot_exists(prefix):
     :return: full name of the snapshot
 
     """
-    tag = datetime.utcnow().strftime("%Y-%m-%d")
+    tag = datetime.datetime.utcnow().strftime("%Y-%m-%d")
     snapshot = "{}@glacier:{}".format(prefix, tag)
     proc = subprocess.Popen(['zfs', 'list', '-H', snapshot],
                             stdout=subprocess.PIPE,
@@ -62,8 +66,12 @@ def _ensure_snapshot_exists(prefix):
     proc.communicate()
     if proc.returncode != 0:
         LOG.debug('_ensure_snapshot_exists() creating {}'.format(snapshot))
-        subprocess.check_output(['zfs', 'snapshot', snapshot],
-                                stderr=subprocess.STDOUT)
+        cmd = [
+            'zfs', 'snapshot',
+            '-o', 'com.sun:auto-snapshot=false',
+            snapshot
+        ]
+        subprocess.check_output(cmd, stderr=subprocess.STDOUT)
         LOG.info('snapshot {} created'.format(snapshot))
     return snapshot
 
@@ -84,21 +92,15 @@ def _ensure_clone_exists(clone, snapshot):
     proc.communicate()
     if proc.returncode != 0:
         LOG.debug('_ensure_clone_exists() creating {} from {}'.format(clone, snapshot))
-        subprocess.check_output(['zfs', 'clone', '-p', snapshot, clone],
-                                stderr=subprocess.STDOUT)
+        cmd = [
+            'zfs', 'clone',
+            '-o', 'com.sun:auto-snapshot=false',
+            '-p',
+            snapshot,
+            clone
+        ]
+        subprocess.check_output(cmd, stderr=subprocess.STDOUT)
         LOG.info('clone {} created'.format(clone))
-
-
-def _disable_snapshots(dataset):
-    """Disable the creation of automatic snapshots for the named data set.
-
-    :type dataset: str
-    :param dataset: ZFS data set for which to disable snapshots.
-
-    """
-    LOG.debug('_disable_snapshots() disabling snapshots for {}'.format(dataset))
-    subprocess.check_output(['zfs', 'set', 'com.sun:auto-snapshot=false', dataset],
-                            stderr=subprocess.STDOUT)
 
 
 def _destroy_zfs_object(fsobj):
@@ -125,26 +127,33 @@ def pop_chdir(path):
         os.chdir(cwd)
 
 
-def _is_go_time(config):
+def is_go_time(config, now):
     """Determine if current time within upload window.
 
     :type config: ConfigParser.ConfigParser
     :param config: akashita configuration
 
+    :type now: :class:`time.struct_time`
+    :param now: current time to be evaluated.
+
     :rtype: bool
     :return: True if current time within upload window, False otherwise
 
     """
-    now = time.localtime()
+    now_time = datetime.time(now.tm_hour, now.tm_min)
     windows = config.get('schedule', 'go_time').split(',')
     for window in windows:
         go_time, stop_time = window.split('-')
         go_time = time.strptime(go_time, '%H:%M')
+        go_time = datetime.time(go_time.tm_hour, go_time.tm_min)
         stop_time = time.strptime(stop_time, '%H:%M')
-        past_go = now.tm_hour >= go_time.tm_hour and now.tm_min >= go_time.tm_min
-        before_stop = now.tm_hour <= stop_time.tm_hour and now.tm_min <= stop_time.tm_min
-        if past_go and before_stop:
-            return True
+        stop_time = datetime.time(stop_time.tm_hour, stop_time.tm_min)
+        if stop_time < go_time:
+            if go_time <= now_time or now_time <= stop_time:
+                return True
+        else:
+            if go_time <= now_time and now_time <= stop_time:
+                return True
     return False
 
 
@@ -163,7 +172,7 @@ def _ensure_vault_exists(layer2_obj, prefix):
     :return: the name of the vault and the Vault instance.
 
     """
-    tag = datetime.utcnow().strftime("%Y-%m-%d")
+    tag = datetime.datetime.utcnow().strftime("%Y-%m-%d")
     vault_name = '{}-{}'.format(prefix, tag)
     layer2_obj.layer1.create_vault(vault_name)
     response_data = layer2_obj.layer1.describe_vault(vault_name)
@@ -190,7 +199,7 @@ def _create_archive(config, paths, archive_name):
     """
     # create a temporary working directory for the archive parts
     tmpdir = config.get('paths', 'tmpdir')
-    tag = datetime.utcnow().strftime("%Y-%m-%d")
+    tag = datetime.datetime.utcnow().strftime("%Y-%m-%d")
     root = os.path.join(tmpdir, '{}-{}'.format(archive_name, tag))
     if os.path.exists(root) and len(os.listdir(root)) == 0:
         os.rmdir(root)
@@ -200,22 +209,37 @@ def _create_archive(config, paths, archive_name):
         try:
             with pop_chdir(root):
                 LOG.debug('_create_archive() compressing {}'.format(archive_name))
-                tar = subprocess.Popen(['tar', 'Jc'] + paths,
+                tar_cmd = ['tar', 'Jc'] + paths
+                LOG.debug('_create_archive(): {}'.format(tar_cmd))
+                tar = subprocess.Popen(tar_cmd,
                                        stdout=subprocess.PIPE,
                                        stderr=devnull)
-                split = subprocess.Popen(['split', '-d', '-b', '128m', '-', archive_name],
+                # split fails if it runs out of suffix digits, so give it
+                # enough digits to handle our enormous files
+                split_cmd = [
+                    'split',
+                    '-d',
+                    '-a', '4',
+                    '-b', config.get('split', 'size'),
+                    '-',
+                    archive_name
+                ]
+                LOG.debug('_create_archive(): {}'.format(split_cmd))
+                split = subprocess.Popen(split_cmd,
                                          stdin=tar.stdout,
                                          stdout=subprocess.PIPE,
-                                         stderr=devnull)
+                                         stderr=subprocess.STDOUT)
                 # allow tar process to receive a SIGPIPE if split exits early
                 tar.stdout.close()
                 # read the outputs so the process finishes, but ignore them
-                split.communicate()
+                out, _ = split.communicate()
                 if tar.returncode != 0 and tar.returncode is not None:
                     raise subprocess.CalledProcessError(tar.returncode, "tar")
                 if split.returncode != 0 and split.returncode is not None:
+                    LOG.error('split output: {}'.format(out))
                     raise subprocess.CalledProcessError(split.returncode, "split")
         except:
+            LOG.exception('archive processing failed')
             # wash it all away and try again next time around
             shutil.rmtree(root)
             raise
@@ -253,7 +277,6 @@ def _process_vault(config, section, name, layer2_obj):
     clone_name = clone_base + '/' + vault_name
     clone_path = '/' + clone_name
     _ensure_clone_exists(clone_name, snapshot_name)
-    _disable_snapshots(clone_name)
     try:
         # process each of the archives specified in the config file
         is_archive = lambda n: n.startswith(ARCHIVE_PREFIX)
@@ -265,25 +288,24 @@ def _process_vault(config, section, name, layer2_obj):
             archive_name = archive[len(ARCHIVE_PREFIX):]
             LOG.debug('_process_vault() processing archive {}'.format(archive_name))
             parts_dir = None
-            part_num = 1
             for part in _create_archive(config, paths, archive_name):
-                desc = '{}-{}'.format(archive_name, str(part_num))
-                LOG.debug('_process_vault() processing archive part {}'.format(part_num))
                 # sleep until we reach the 'go' time
-                while not _is_go_time(config):
+                while not is_go_time(config, time.localtime()):
                     LOG.debug('_process_vault() sleeping...')
-                    time.sleep(60 * 60 * 10)
+                    time.sleep(60 * 10)
+                LOG.debug('_process_vault() processing archive {}'.format(part))
                 start_time = time.time()
+                desc = 'archive:{};;file:{}'.format(archive_name, os.path.basename(part))
+                LOG.info('uploading {}...'.format(desc))
                 archive_id = vault_obj.upload_archive(part, desc)
                 elapsed = (time.time() - start_time) / 60
                 LOG.info('uploaded archive {} to vault {} in {:.1f} minutes'.format(
                     archive_id, vault_name, elapsed))
                 # remove each part as it is uploaded
                 os.unlink(part)
-                LOG.info('Finished part {} of archive {}'.format(part_num, archive_name))
+                LOG.info('Finished archive {}'.format(part))
                 if parts_dir is None:
                     parts_dir = os.path.dirname(part)
-                part_num += 1
             # remove the temporary working directory
             os.rmdir(parts_dir)
             LOG.info('finished archive {}'.format(archive_name))
@@ -293,11 +315,13 @@ def _process_vault(config, section, name, layer2_obj):
     LOG.info('processing vault {} completed'.format(vault_name))
 
 
-def main():
-    """Create archives and upload to vaults on Amazon Glacier."""
-    config = akashita.load_configuration(LOG)
-    akashita.configure_logging(LOG, config)
-    LOG.info('backup process started')
+def _perform_backup(config):
+    """Perform the backup procedure.
+
+    :type config: ConfigParser.ConfigParser
+    :param config: akashita configuration
+
+    """
     aws_access_key_id = config.get('aws', 'access_key')
     aws_secret_access_key = config.get('aws', 'secret_key')
     region_name = config.get('aws', 'region_name')
@@ -310,6 +334,23 @@ def main():
             _process_vault(config, section_name, section_name[len(VAULT_PREFIX):], layer2_obj)
         except:
             LOG.exception('vault processing failed for {}'.format(section_name))
+
+
+def main():
+    """Create archives and upload to vaults on Amazon Glacier."""
+    parser = argparse.ArgumentParser(description="Backup files to Amazon Glacier.")
+    parser.add_argument("-T", "--test", action="store_true",
+                        help="split archives into smaller files")
+    args = parser.parse_args()
+    config = akashita.load_configuration(LOG)
+    akashita.configure_logging(LOG, config)
+    config.add_section('split')
+    if args.test:
+        config.set('split', 'size', '1M')
+    else:
+        config.set('split', 'size', '128M')
+    LOG.info('backup process started')
+    _perform_backup(config)
     LOG.info('backup process exiting')
 
 
