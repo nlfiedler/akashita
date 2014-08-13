@@ -62,3 +62,7 @@ $ python2.7
 >>> import boto.glacier
 >>> boto.glacier.regions()
 ```
+
+## Hack httplib
+
+Seems that Python 2.7 has issues in httplib when sending a mix of Unicode and binary data, which occurs often with web service APIs. See bug [11898](http://bugs.python.org/issue11898) for details. Apply the patch attached to the bug report to hack around the apparently complex issue.
