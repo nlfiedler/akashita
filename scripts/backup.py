@@ -24,6 +24,7 @@ Requires Amazon Web Services module boto (https://github.com/boto/boto)
 """
 
 import argparse
+import ConfigParser
 from contextlib import contextmanager
 import datetime
 import logging
@@ -45,12 +46,16 @@ except ImportError:
 
 VAULT_PREFIX = 'vault_'
 ARCHIVE_PREFIX = 'archive_'
+METADATA_FILE = '.akashita-meta'
 
 LOG = logging.getLogger('akashita')
 
 
-def _ensure_snapshot_exists(prefix):
+def _ensure_snapshot_exists(tag, prefix):
     """Create the ZFS snapshot, if it is missing.
+
+    :type tag: str
+    :param tag: tag for creating snapshots and vaults.
 
     :type prefix: str
     :param prefix: name prefix of the snapshot to create
@@ -58,7 +63,6 @@ def _ensure_snapshot_exists(prefix):
     :return: full name of the snapshot
 
     """
-    tag = datetime.datetime.utcnow().strftime("%Y-%m-%d")
     snapshot = "{}@glacier:{}".format(prefix, tag)
     proc = subprocess.Popen(['zfs', 'list', '-H', snapshot],
                             stdout=subprocess.PIPE,
@@ -157,10 +161,13 @@ def is_go_time(config, now):
     return False
 
 
-def _ensure_vault_exists(layer2_obj, prefix):
+def _ensure_vault_exists(tag, layer2_obj, prefix):
     """Create a vault with the given base name.
 
     This operation is idempotent.
+
+    :type tag: str
+    :param tag: tag for creating snapshots and vaults.
 
     :type layer2_obj: :class:`glacier.layer2.Layer2`
     :param layer2_obj: Layer2 API instance
@@ -172,7 +179,6 @@ def _ensure_vault_exists(layer2_obj, prefix):
     :return: the name of the vault and the Vault instance.
 
     """
-    tag = datetime.datetime.utcnow().strftime("%Y-%m-%d")
     vault_name = '{}-{}'.format(prefix, tag)
     layer2_obj.layer1.create_vault(vault_name)
     response_data = layer2_obj.layer1.describe_vault(vault_name)
@@ -235,8 +241,11 @@ def _build_split_cmd(config, archive_name):
     return split_cmd
 
 
-def _create_archive(config, section, paths, archive_name):
+def _create_archive(tag, config, section, paths, archive_name):
     """Create the set of archive files to be uploaded to a vault.
+
+    :type tag: str
+    :param tag: tag for creating snapshots and vaults.
 
     :type config: ConfigParser.ConfigParser
     :param config: akashita configuration
@@ -256,7 +265,6 @@ def _create_archive(config, section, paths, archive_name):
     """
     # create a temporary working directory for the archive parts
     tmpdir = config.get('paths', 'tmpdir')
-    tag = datetime.datetime.utcnow().strftime("%Y-%m-%d")
     root = os.path.join(tmpdir, '{}-{}'.format(archive_name, tag))
     if os.path.exists(root) and len(os.listdir(root)) == 0:
         os.rmdir(root)
@@ -298,8 +306,11 @@ def _create_archive(config, section, paths, archive_name):
             yield os.path.join(root, name)
 
 
-def _process_vault(config, section, name, layer2_obj):
+def _process_vault(tag, config, section, name, layer2_obj):
     """Perform the backup for a particular "vault".
+
+    :type tag: str
+    :param tag: tag for creating snapshots and vaults.
 
     :type config: ConfigParser.ConfigParser
     :param config: akashita configuration
@@ -315,51 +326,50 @@ def _process_vault(config, section, name, layer2_obj):
 
     """
     # ensure the vault exists
-    vault_name, vault_obj = _ensure_vault_exists(layer2_obj, name)
+    vault_name, vault_obj = _ensure_vault_exists(tag, layer2_obj, name)
     LOG.info('processing vault {}'.format(vault_name))
     # ensure a zfs snapshot exists
     dataset = config.get(section, 'dataset')
-    snapshot_name = _ensure_snapshot_exists(dataset)
+    snapshot_name = _ensure_snapshot_exists(tag, dataset)
     # ensure the zfs clone exists
     clone_base = config.get(section, 'clone_base')
     clone_name = clone_base + '/' + vault_name
     clone_path = '/' + clone_name
     _ensure_clone_exists(clone_name, snapshot_name)
-    try:
-        # process each of the archives specified in the config file
-        is_archive = lambda n: n.startswith(ARCHIVE_PREFIX)
-        archives = [n for n in config.options(section) if is_archive(n)]
-        for archive in archives:
-            paths = []
-            for entry in config.get(section, archive).split(','):
-                paths.append(os.path.join(clone_path, entry.strip()))
-            archive_name = archive[len(ARCHIVE_PREFIX):]
-            LOG.debug('_process_vault() processing archive {}'.format(archive_name))
-            parts_dir = None
-            for part in _create_archive(config, section, paths, archive_name):
-                # sleep until we reach the 'go' time
-                while not is_go_time(config, time.localtime()):
-                    LOG.debug('_process_vault() sleeping...')
-                    time.sleep(60 * 10)
-                LOG.debug('_process_vault() processing archive {}'.format(part))
-                start_time = time.time()
-                desc = 'archive:{};;file:{}'.format(archive_name, os.path.basename(part))
-                LOG.info('uploading {}...'.format(desc))
-                archive_id = vault_obj.upload_archive(part, desc)
-                elapsed = (time.time() - start_time) / 60
-                LOG.info('uploaded archive {} to vault {} in {:.1f} minutes'.format(
-                    archive_id, vault_name, elapsed))
-                # remove each part as it is uploaded
-                os.unlink(part)
-                LOG.info('Finished archive {}'.format(part))
-                if parts_dir is None:
-                    parts_dir = os.path.dirname(part)
-            # remove the temporary working directory
-            os.rmdir(parts_dir)
-            LOG.info('finished archive {}'.format(archive_name))
-    finally:
-        _destroy_zfs_object(clone_name)
-        _destroy_zfs_object(snapshot_name)
+    # process each of the archives specified in the config file
+    is_archive = lambda n: n.startswith(ARCHIVE_PREFIX)
+    archives = [n for n in config.options(section) if is_archive(n)]
+    for archive in archives:
+        paths = []
+        for entry in config.get(section, archive).split(','):
+            paths.append(os.path.join(clone_path, entry.strip()))
+        archive_name = archive[len(ARCHIVE_PREFIX):]
+        LOG.debug('_process_vault() processing archive {}'.format(archive_name))
+        parts_dir = None
+        for part in _create_archive(tag, config, section, paths, archive_name):
+            # sleep until we reach the 'go' time
+            while not is_go_time(config, time.localtime()):
+                LOG.debug('_process_vault() sleeping...')
+                time.sleep(60 * 10)
+            LOG.debug('_process_vault() processing archive {}'.format(part))
+            start_time = time.time()
+            desc = 'archive:{};;file:{}'.format(archive_name, os.path.basename(part))
+            LOG.info('uploading {}...'.format(desc))
+            archive_id = vault_obj.upload_archive(part, desc)
+            elapsed = (time.time() - start_time) / 60
+            LOG.info('uploaded archive {} to vault {} in {:.1f} minutes'.format(
+                archive_id, vault_name, elapsed))
+            # remove each part as it is uploaded
+            os.unlink(part)
+            LOG.info('Finished archive {}'.format(part))
+            if parts_dir is None:
+                parts_dir = os.path.dirname(part)
+        # remove the temporary working directory
+        os.rmdir(parts_dir)
+        LOG.info('finished archive {}'.format(archive_name))
+    # remove the ZFS datasets only if successfully backed up
+    _destroy_zfs_object(clone_name)
+    _destroy_zfs_object(snapshot_name)
     LOG.info('processing vault {} completed'.format(vault_name))
 
 
@@ -377,11 +387,36 @@ def _perform_backup(config):
         aws_access_key_id, aws_secret_access_key, region_name=region_name)
     is_vault = lambda n: n.startswith(VAULT_PREFIX)
     vaults = [n for n in config.sections() if is_vault(n)]
+    # fetch or compute the tag for this backup operation
+    tag = _load_or_compute_tag()
     for section_name in vaults:
         try:
-            _process_vault(config, section_name, section_name[len(VAULT_PREFIX):], layer2_obj)
+            vault_name = section_name[len(VAULT_PREFIX):]
+            _process_vault(tag, config, section_name, vault_name, layer2_obj)
         except:
             LOG.exception('vault processing failed for {}'.format(section_name))
+    # after successful completion, delete the meta data
+    os.unlink(METADATA_FILE)
+    LOG.debug('_perform_backup() deleted {}'.format(METADATA_FILE))
+
+
+def _load_or_compute_tag():
+    """Determine the tag to be used to create snapshots, vaults, etc."""
+    config = ConfigParser.ConfigParser()
+    if os.path.exists(METADATA_FILE):
+        # restore the last saved tag from before the crash
+        LOG.debug('_compute_tag() reading {}'.format(METADATA_FILE))
+        config.read(METADATA_FILE)
+        tag = config.get('meta', 'tag')
+    else:
+        # generate a new tag and save immediately
+        tag = datetime.datetime.utcnow().strftime("%Y-%m-%d")
+        config.add_section('meta')
+        config.set('meta', 'tag', tag)
+        with open(METADATA_FILE, 'w') as fobj:
+            config.write(fobj)
+        LOG.debug('_compute_tag() saved {}'.format(METADATA_FILE))
+    return tag
 
 
 def main():
