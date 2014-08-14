@@ -181,11 +181,68 @@ def _ensure_vault_exists(layer2_obj, prefix):
     return vault_name, vault_obj
 
 
-def _create_archive(config, paths, archive_name):
+def _build_tar_cmd(config, section, archive_name, paths):
+    """Build up the list of strings to be used to invoke tar.
+
+    :type config: ConfigParser.ConfigParser
+    :param config: akashita configuration
+
+    :type archive_name: str
+    :param archive_name: name prefix for the archive files
+
+    :type paths: list
+    :param paths: paths to be archived
+
+    """
+    tar_cmd = ['tar']
+    opt_name = 'options_{}'.format(archive_name)
+    if config.has_option(section, opt_name):
+        option_val = config.get(section, opt_name)
+        options = [opt.strip() for opt in option_val.split(',')]
+        if 'compressed' in options:
+            tar_cmd.append('-J')
+    opt_name = 'excludes_{}'.format(archive_name)
+    if config.has_option(section, opt_name):
+        option_val = config.get(section, opt_name)
+        excludes = [opt.strip() for opt in option_val.split(',')]
+        for patt in excludes:
+            tar_cmd.append('--exclude={}'.format(patt))
+    tar_cmd.append('-c')
+    tar_cmd.extend(paths)
+    return tar_cmd
+
+
+def _build_split_cmd(config, archive_name):
+    """Build up the list of strings to be used to invoke split.
+
+    :type config: ConfigParser.ConfigParser
+    :param config: akashita configuration
+
+    :type archive_name: str
+    :param archive_name: name prefix for the archive files
+
+    """
+    split_cmd = [
+        'split',
+        '-d',
+        # split fails if it runs out of suffix digits, so give it
+        # enough digits to handle our enormous files
+        '-a', '4',
+        '-b', config.get('split', 'size'),
+        '-',
+        archive_name
+    ]
+    return split_cmd
+
+
+def _create_archive(config, section, paths, archive_name):
     """Create the set of archive files to be uploaded to a vault.
 
     :type config: ConfigParser.ConfigParser
     :param config: akashita configuration
+
+    :type section: str
+    :param section: vault section from config
 
     :type paths: list
     :param paths: paths to be archived
@@ -209,21 +266,12 @@ def _create_archive(config, paths, archive_name):
         try:
             with pop_chdir(root):
                 LOG.debug('_create_archive() compressing {}'.format(archive_name))
-                tar_cmd = ['tar', 'Jc'] + paths
+                tar_cmd = _build_tar_cmd(config, section, archive_name, paths)
                 LOG.debug('_create_archive(): {}'.format(tar_cmd))
                 tar = subprocess.Popen(tar_cmd,
                                        stdout=subprocess.PIPE,
                                        stderr=devnull)
-                # split fails if it runs out of suffix digits, so give it
-                # enough digits to handle our enormous files
-                split_cmd = [
-                    'split',
-                    '-d',
-                    '-a', '4',
-                    '-b', config.get('split', 'size'),
-                    '-',
-                    archive_name
-                ]
+                split_cmd = _build_split_cmd(config, archive_name)
                 LOG.debug('_create_archive(): {}'.format(split_cmd))
                 split = subprocess.Popen(split_cmd,
                                          stdin=tar.stdout,
@@ -270,8 +318,8 @@ def _process_vault(config, section, name, layer2_obj):
     vault_name, vault_obj = _ensure_vault_exists(layer2_obj, name)
     LOG.info('processing vault {}'.format(vault_name))
     # ensure a zfs snapshot exists
-    fs_path = config.get(section, 'fs_path')
-    snapshot_name = _ensure_snapshot_exists(fs_path)
+    dataset = config.get(section, 'dataset')
+    snapshot_name = _ensure_snapshot_exists(dataset)
     # ensure the zfs clone exists
     clone_base = config.get(section, 'clone_base')
     clone_name = clone_base + '/' + vault_name
@@ -288,7 +336,7 @@ def _process_vault(config, section, name, layer2_obj):
             archive_name = archive[len(ARCHIVE_PREFIX):]
             LOG.debug('_process_vault() processing archive {}'.format(archive_name))
             parts_dir = None
-            for part in _create_archive(config, paths, archive_name):
+            for part in _create_archive(config, section, paths, archive_name):
                 # sleep until we reach the 'go' time
                 while not is_go_time(config, time.localtime()):
                     LOG.debug('_process_vault() sleeping...')
@@ -346,7 +394,7 @@ def main():
     akashita.configure_logging(LOG, config)
     config.add_section('split')
     if args.test:
-        config.set('split', 'size', '1M')
+        config.set('split', 'size', '2M')
     else:
         config.set('split', 'size', '128M')
     LOG.info('backup process started')

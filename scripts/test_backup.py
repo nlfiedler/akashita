@@ -77,6 +77,27 @@ class TestBackup(unittest.TestCase):
         ttime = time.localtime(time.mktime((2014, 8, 12, 12, 15, 36, 1, 224, -1)))
         self.assertTrue(backup.is_go_time(parser, ttime))
 
+        parser.set('schedule', 'go_time', '05:00-13:00,17:00-00:00')
+        ttime = time.localtime(time.mktime((2014, 8, 12, 4, 15, 36, 1, 224, -1)))
+        self.assertFalse(backup.is_go_time(parser, ttime))
+        ttime = time.localtime(time.mktime((2014, 8, 12, 4, 45, 36, 1, 224, -1)))
+        self.assertFalse(backup.is_go_time(parser, ttime))
+        ttime = time.localtime(time.mktime((2014, 8, 12, 13, 15, 36, 1, 224, -1)))
+        self.assertFalse(backup.is_go_time(parser, ttime))
+        ttime = time.localtime(time.mktime((2014, 8, 12, 16, 45, 36, 1, 224, -1)))
+        self.assertFalse(backup.is_go_time(parser, ttime))
+
+        ttime = time.localtime(time.mktime((2014, 8, 12, 5, 15, 36, 1, 224, -1)))
+        self.assertTrue(backup.is_go_time(parser, ttime))
+        ttime = time.localtime(time.mktime((2014, 8, 12, 17, 00, 36, 1, 224, -1)))
+        self.assertTrue(backup.is_go_time(parser, ttime))
+        ttime = time.localtime(time.mktime((2014, 8, 12, 23, 45, 36, 1, 224, -1)))
+        self.assertTrue(backup.is_go_time(parser, ttime))
+        ttime = time.localtime(time.mktime((2014, 8, 12, 11, 15, 36, 1, 224, -1)))
+        self.assertTrue(backup.is_go_time(parser, ttime))
+        ttime = time.localtime(time.mktime((2014, 8, 12, 18, 15, 36, 1, 224, -1)))
+        self.assertTrue(backup.is_go_time(parser, ttime))
+
 
 if __name__ == "__main__":
     unittest.main()

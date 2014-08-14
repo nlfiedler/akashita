@@ -42,12 +42,12 @@ tmpdir = /rpool/glacier
 [vault_shared]
 
 #
-# 'fs_path' names the ZFS filesystem containing the paths to be archived.
+# 'dataset' names the ZFS filesystem containing the paths to be archived.
 #
-fs_path = tank/shared
+dataset = tank/shared
 
 # 'clone_base' specifies where ZFS clones will be created. They must reside
-# within the same pool as the fs_path file system.
+# within the same pool as the ZFS dataset.
 clone_base = tank/glacier
 
 #
@@ -61,6 +61,21 @@ archive_misc = Artwork,
                Projects,
                Sounds
 
+#
+# Option names beginning with 'options_' specify the options to be applied to
+# the archive with the matching suffix (e.g. options_abc => archive_abc).
+# Available options include: compressed
+#
+options_misc = compressed
+
+#
+# Option names beginning with 'excludes_' specify the file patterns to be
+# excluded when constructing the archive with the matching suffix.
+#
+excludes_misc = .DS_Store, .localized
+
 archive_pictures = Pictures
+excludes_pictures = .DS_Store, .localized
 
 archive_movies = Movies
+excludes_movies = .DS_Store, .localized
