@@ -1,0 +1,9 @@
+#!/bin/bash
+#
+# Invoke fabric with the appropriate options to provision the OpenIndiana
+# instance running in a Vagrant-managed VM.
+#
+# Generate the ssh_config using `vagrant ssh-config > ssh_config`
+#
+
+fab --set=use_ssh_config=True --ssh-config-path=ssh_config -H default $*
