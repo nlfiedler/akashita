@@ -1,38 +1,59 @@
 # -*- coding: utf-8 -*-
-"""Fabric file for installing requirements on OpenIndiana."""
+"""Fabric file for installing requirements on OpenIndiana.
 
-from fabric.api import env, sudo
+Run the `install_python` task first, then `install_boto`.
+
+"""
+
+from fabric.api import cd, env, path, run, sudo
 
 env.sudo_prefix = 'pfexec '
 
-# TOOD: isntall compress/xz so we can fetch the smallest source tarball
-# TODO: install Python 2.7
-# TODO: install pip using python2.7
-# TODO: install boot using pip2.7
+DIR_CPY = 'Python-2.7.8'
+TAR_CPY = '{}.tar.xz'.format(DIR_CPY)
+URL_CPY = 'https://www.python.org/ftp/python/2.7.8/{}'.format(TAR_CPY)
+URL_PIP = 'https://bootstrap.pypa.io/get-pip.py'
 
 
-def install_tools():
+def install_python():
     """Install the developer tools packages."""
-    _pkg_install('developer/illumos-gcc')
-    _pkg_install('developer/gnu-binutils')
-    _pkg_install('system/header')
-    _pkg_install('system/library/math/header-math')
-    _pkg_install('developer/library/lint')
-    _pkg_install('compatibility/ucb')
-    # TODO: how to change the PATH? only really need it to build Python
-    # $ export PATH=/opt/gcc/4.4.4/bin:$PATH
-
-
-def add_gcc_lib():
-    """Add the gcc lib to the crle path."""
+    # development tools
+    tools_pkgs = [
+        'developer/illumos-gcc',
+        'developer/gnu-binutils',
+        'system/header',
+        'system/library/math/header-math',
+        'developer/library/lint',
+        'compatibility/ucb',
+        'compress/xz'
+    ]
+    _pkg_install(tools_pkgs)
     sudo('crle -u -l /opt/gcc/4.4.4/lib')
+    # Python 2.7.x
+    run('wget -q {}'.format(URL_CPY))
+    run('tar Jxf {}'.format(TAR_CPY))
+    with cd(DIR_CPY), path('/opt/gcc/4.4.4/bin'):
+        run('./configure')
+        run('make')
+        sudo('make install')
+    run('rm -rf {}*'.format(DIR_CPY))
+
+
+def install_boto():
+    """Install Amazon Web Service API (boto)."""
+    sudo('wget -q --no-check-certificate {}'.format(URL_PIP))
+    with path('/usr/local/bin'):
+        sudo('python2.7 get-pip.py')
+        sudo('pip2.7 install boto')
 
 
 def _pkg_install(pkg):
-    """Install the named package.
+    """Install the named package or list of packages.
 
-    :type pkg: str
-    :param pkg: name of package to install
+    :type pkg: str|list
+    :param pkg: name(s) of package(s) to install
 
     """
+    if isinstance(pkg, list):
+        pkg = ' '.join(pkg)
     sudo("pkg install -q {}".format(pkg))
