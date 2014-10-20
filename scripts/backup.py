@@ -53,6 +53,7 @@ import subprocess
 import sys
 import time
 
+from boto.glacier.exceptions import UnexpectedHTTPResponseError
 import boto.glacier.layer2
 import boto.glacier.vault
 
@@ -325,6 +326,33 @@ def _create_archive(tag, config, section, paths, archive_name):
             yield os.path.join(root, name)
 
 
+def _upload_archive(vault_obj, part, desc):
+    """Upload the given part and return an archive identifier.
+
+    Will retry if an unexpected HTTP response error is raised.
+
+    :type vault_obj: :class:`boto.glacier.vault.Vault`
+    :param vault_obj: Glacier vault object.
+
+    :type part: str
+    :param part: name of file to upload.
+
+    :type desc: str
+    :param desc: description for the archive.
+
+    :rtype: str
+    :return: archive identifier.
+
+    """
+    archive_id = None
+    while archive_id is None:
+        try:
+            archive_id = vault_obj.upload_archive(part, desc)
+        except UnexpectedHTTPResponseError as err:
+            LOG.warning('upload of {} failed due to {}, retrying...'.format(desc, err))
+    return archive_id
+
+
 def _process_vault(tag, config, section, name, layer2_obj):
     """Perform the backup for a particular "vault".
 
@@ -374,7 +402,7 @@ def _process_vault(tag, config, section, name, layer2_obj):
             start_time = time.time()
             desc = 'archive:{};;file:{}'.format(archive_name, os.path.basename(part))
             LOG.info('uploading {}...'.format(desc))
-            archive_id = vault_obj.upload_archive(part, desc)
+            archive_id = _upload_archive(vault_obj, part, desc)
             elapsed = (time.time() - start_time) / 60
             LOG.info('uploaded archive {} to vault {} in {:.1f} minutes'.format(
                 archive_id, vault_name, elapsed))
@@ -424,7 +452,7 @@ def _load_or_compute_tag():
     config = ConfigParser.ConfigParser()
     if os.path.exists(METADATA_FILE):
         # restore the last saved tag from before the crash
-        LOG.debug('_compute_tag() reading {}'.format(METADATA_FILE))
+        LOG.debug('_load_or_compute_tag() reading {}'.format(METADATA_FILE))
         config.read(METADATA_FILE)
         tag = config.get('meta', 'tag')
     else:
@@ -434,7 +462,7 @@ def _load_or_compute_tag():
         config.set('meta', 'tag', tag)
         with open(METADATA_FILE, 'w') as fobj:
             config.write(fobj)
-        LOG.debug('_compute_tag() saved {}'.format(METADATA_FILE))
+        LOG.debug('_load_or_compute_tag() saved {}'.format(METADATA_FILE))
     return tag
 
 
