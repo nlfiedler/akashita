@@ -18,61 +18,25 @@
 # under the License.
 #
 # -------------------------------------------------------------------
-"""Fabric file for installing requirements on OpenIndiana.
+"""Fabric file for installing requirements on Ubuntu Linux."""
 
-Run the `install_python` task first, then `install_boto`.
+from fabric.api import sudo, task
 
-"""
-
-from fabric.api import cd, env, path, run, sudo
-
-env.sudo_prefix = 'pfexec '
-
-DIR_CPY = 'Python-2.7.8'
-TAR_CPY = '{}.tar.xz'.format(DIR_CPY)
-URL_CPY = 'https://www.python.org/ftp/python/2.7.8/{}'.format(TAR_CPY)
-URL_PIP = 'https://bootstrap.pypa.io/get-pip.py'
+# TODO: may need to patch Python 2.7 to work around httplib and unicode bug
+#       (see http://bugs.python.org/issue11898 for details and patch)
+#       (file to patch is /usr/lib/python2.7/httplib.py, line ~818)
 
 
-def install_python():
-    """Install the developer tools packages."""
-    # development tools
-    tools_pkgs = [
-        'developer/illumos-gcc',
-        'developer/gnu-binutils',
-        'system/header',
-        'system/library/math/header-math',
-        'developer/library/lint',
-        'compatibility/ucb',
-        'compress/xz'
-    ]
-    _pkg_install(tools_pkgs)
-    sudo('crle -u -l /opt/gcc/4.4.4/lib')
-    # Python 2.7.x
-    run('wget -q {}'.format(URL_CPY))
-    run('tar Jxf {}'.format(TAR_CPY))
-    with cd(DIR_CPY), path('/opt/gcc/4.4.4/bin'):
-        run('./configure')
-        run('make')
-        sudo('make install')
-    run('rm -rf {}*'.format(DIR_CPY))
+@task
+def all():
+    """Install everything needed for akashita."""
+    install_boto()
 
 
+@task
 def install_boto():
     """Install Amazon Web Service API (boto)."""
-    sudo('wget -q --no-check-certificate {}'.format(URL_PIP))
-    with path('/usr/local/bin'):
-        sudo('python2.7 get-pip.py')
-        sudo('pip2.7 install boto')
-
-
-def _pkg_install(pkg):
-    """Install the named package or list of packages.
-
-    :type pkg: str|list
-    :param pkg: name(s) of package(s) to install
-
-    """
-    if isinstance(pkg, list):
-        pkg = ' '.join(pkg)
-    sudo("pkg install -q {}".format(pkg))
+    # Use pip to get the most recent version of boto (Ubuntu tends to lag
+    # behind quite a bit).
+    sudo('apt-get install -q -y python-pip')
+    sudo('pip2 -q install boto')

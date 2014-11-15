@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Invoke fabric with the appropriate options to provision the OpenIndiana
+# Invoke fabric with the appropriate options to provision the Ubuntu Linux
 # instance running in a Vagrant-managed VM.
 #
 # Generate the ssh_config using `vagrant ssh-config > ssh_config`
