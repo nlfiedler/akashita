@@ -40,6 +40,9 @@ def load_configuration(log):
     if os.path.exists(fname):
         log.debug('_load_configuration() reading {}'.format(fname))
         config.read(fname)
+    elif os.path.exists('/usr/local/etc/akashita'):
+        log.debug('_load_configuration() reading /usr/local/etc/akashita')
+        config.read('/usr/local/etc/akashita')
     elif os.path.exists('/etc/akashita'):
         log.debug('_load_configuration() reading /etc/akashita')
         config.read('/etc/akashita')
