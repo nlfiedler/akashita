@@ -35,17 +35,18 @@ def load_configuration(log):
     :param log: instance of logging.Logger.
 
     """
-    config = ConfigParser.ConfigParser()
+    # no interpolation, since logging record format includes %
+    config = ConfigParser.RawConfigParser()
     fname = os.path.expanduser('~/.akashita')
     if os.path.exists(fname):
         log.debug('_load_configuration() reading {}'.format(fname))
         config.read(fname)
-    elif os.path.exists('/usr/local/etc/akashita'):
-        log.debug('_load_configuration() reading /usr/local/etc/akashita')
-        config.read('/usr/local/etc/akashita')
-    elif os.path.exists('/etc/akashita'):
-        log.debug('_load_configuration() reading /etc/akashita')
-        config.read('/etc/akashita')
+    elif os.path.exists('/usr/local/etc/akashita.conf'):
+        log.debug('_load_configuration() reading /usr/local/etc/akashita.conf')
+        config.read('/usr/local/etc/akashita.conf')
+    elif os.path.exists('/etc/akashita.conf'):
+        log.debug('_load_configuration() reading /etc/akashita.conf')
+        config.read('/etc/akashita.conf')
     else:
         log.error("Could not find configuration file!")
         sys.stderr.write("Could not find configuration file!\n")
