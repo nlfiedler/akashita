@@ -1,0 +1,18 @@
+--- httplib.py	2014-11-16 06:15:38.898816607 +0000
++++ httplib.py.new	2014-11-16 06:14:27.000000000 +0000
+@@ -824,8 +824,13 @@
+         # it will avoid performance problems caused by the interaction
+         # between delayed ack and the Nagle algorithm.
+         if isinstance(message_body, str):
+-            msg += message_body
+-            message_body = None
++            try:
++                msg += message_body
++                message_body = None
++            except UnicodeDecodeError:
++                # This could be binary data - we can treat it like
++                # something that isn't a str instance
++                pass
+         self.send(msg)
+         if message_body is not None:
+             #message_body was not a string (i.e. it is a file) and

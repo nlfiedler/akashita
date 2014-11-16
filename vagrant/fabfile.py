@@ -20,11 +20,7 @@
 # -------------------------------------------------------------------
 """Fabric file for installing requirements on Ubuntu Linux."""
 
-from fabric.api import sudo, task
-
-# TODO: may need to patch Python 2.7 to work around httplib and unicode bug
-#       (see http://bugs.python.org/issue11898 for details and patch)
-#       (file to patch is /usr/lib/python2.7/httplib.py, line ~818)
+from fabric.api import cd, put, sudo, task
 
 
 @task
@@ -40,3 +36,7 @@ def install_boto():
     # behind quite a bit).
     sudo('apt-get install -q -y python-pip')
     sudo('pip2 -q install boto')
+    # Patch Python 2.7 so Unicode characters do not cause a crash in httplib.
+    put('httplib.py.diff')
+    with cd('/usr/lib/python2.7'):
+        sudo('patch -b -p0 -u < ~/httplib.py.diff')
