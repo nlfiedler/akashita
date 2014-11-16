@@ -25,13 +25,6 @@ Based on a configuration file, takes a ZFS snapshot and creates one or more
 compressed archives, splits them into manageable pieces, and uploads them
 to a new vault.
 
-To test this script, create a disposable ZFS filesystem using the `mkfile`
-command, like so:
-
-$ mkfile 256m tank
-$ pfexec zpool create tank $PWD/tank
-$ pfexec zfs create tank/shared
-
 Using the `at` command makes it easy to start the backup process in the
 background with no controlling terminal.
 
