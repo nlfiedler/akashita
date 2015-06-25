@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # -------------------------------------------------------------------
 #
-# Copyright (c) 2014 Nathan Fiedler
+# Copyright (c) 2014-2015 Nathan Fiedler
 #
 # This file is provided to you under the Apache License,
 # Version 2.0 (the "License"); you may not use this file
@@ -70,6 +70,7 @@ def configure_logging(log, config):
     handler.setLevel(logging.DEBUG)
     if config.has_option('logging', 'format'):
         log_format = config.get('logging', 'format')
+        log_format.strip('"').strip("'")
     else:
         log_format = DEFAULT_LOG_FORMAT
     formatter = logging.Formatter(log_format)
