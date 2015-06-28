@@ -70,7 +70,7 @@ def configure_logging(log, config):
     handler.setLevel(logging.DEBUG)
     if config.has_option('logging', 'format'):
         log_format = config.get('logging', 'format')
-        log_format.strip('"').strip("'")
+        log_format = log_format.strip('"').strip("'")
     else:
         log_format = DEFAULT_LOG_FORMAT
     formatter = logging.Formatter(log_format)
