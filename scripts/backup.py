@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 # -------------------------------------------------------------------
 #
-# Copyright (c) 2014 Nathan Fiedler
+# Copyright (c) 2014-2015 Nathan Fiedler
 #
 # This file is provided to you under the Apache License,
 # Version 2.0 (the "License"); you may not use this file
@@ -42,6 +42,7 @@ import datetime
 import logging
 import os
 import shutil
+import ssl
 import subprocess
 import sys
 import time
@@ -343,6 +344,8 @@ def _upload_archive(vault_obj, part, desc):
             archive_id = vault_obj.upload_archive(part, desc)
         except UnexpectedHTTPResponseError as err:
             LOG.warning('upload of {} failed due to {}, retrying...'.format(desc, err))
+        except ssl.SSLError as err:
+            LOG.warning('upload of {} failed due to {}, retrying...'.format(desc, err))
     return archive_id
 
 
@@ -377,8 +380,7 @@ def _process_vault(tag, config, section, name, layer2_obj):
     clone_path = '/' + clone_name
     _ensure_clone_exists(clone_name, snapshot_name)
     # process each of the archives specified in the config file
-    is_archive = lambda n: n.startswith(ARCHIVE_PREFIX)
-    archives = [n for n in config.options(section) if is_archive(n)]
+    archives = [n for n in config.options(section) if n.startswith(ARCHIVE_PREFIX)]
     for archive in archives:
         paths = []
         for entry in config.get(section, archive).split(','):
@@ -425,19 +427,21 @@ def _perform_backup(config):
     region_name = config.get('aws', 'region_name')
     layer2_obj = boto.glacier.layer2.Layer2(
         aws_access_key_id, aws_secret_access_key, region_name=region_name)
-    is_vault = lambda n: n.startswith(VAULT_PREFIX)
-    vaults = [n for n in config.sections() if is_vault(n)]
+    vaults = [n for n in config.sections() if n.startswith(VAULT_PREFIX)]
     # fetch or compute the tag for this backup operation
     tag = _load_or_compute_tag()
+    success = True
     for section_name in vaults:
         try:
             vault_name = section_name[len(VAULT_PREFIX):]
             _process_vault(tag, config, section_name, vault_name, layer2_obj)
         except:
             LOG.exception('vault processing failed for {}'.format(section_name))
+            success = False
     # after successful completion, delete the meta data
-    os.unlink(METADATA_FILE)
-    LOG.debug('_perform_backup() deleted {}'.format(METADATA_FILE))
+    if success:
+        os.unlink(METADATA_FILE)
+        LOG.debug('_perform_backup() deleted {}'.format(METADATA_FILE))
 
 
 def _load_or_compute_tag():
