@@ -6,6 +6,9 @@
 
 * Collect requirements using the wiki
 * Convert the Python-based prototype to Erlang/OTP
+* Consider switching to Google Cloud Storage
+    - https://cloud.google.com/storage-nearline/
+    - https://cloud.google.com/storage/docs/json_api/
 
 ## Implementation Notes
 
