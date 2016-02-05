@@ -42,6 +42,7 @@ import datetime
 import logging
 import os
 import shutil
+import socket
 import ssl
 import subprocess
 import sys
@@ -83,14 +84,14 @@ def _ensure_snapshot_exists(tag, prefix):
                             stderr=subprocess.PIPE)
     proc.communicate()
     if proc.returncode != 0:
-        LOG.debug('_ensure_snapshot_exists() creating {}'.format(snapshot))
+        LOG.debug('_ensure_snapshot_exists() creating %s', snapshot)
         cmd = [
             'zfs', 'snapshot',
             '-o', 'com.sun:auto-snapshot=false',
             snapshot
         ]
         subprocess.check_output(cmd, stderr=subprocess.STDOUT)
-        LOG.info('snapshot {} created'.format(snapshot))
+        LOG.info('snapshot %s created', snapshot)
     return snapshot
 
 
@@ -109,7 +110,7 @@ def _ensure_clone_exists(clone, snapshot):
                             stderr=subprocess.PIPE)
     proc.communicate()
     if proc.returncode != 0:
-        LOG.debug('_ensure_clone_exists() creating {} from {}'.format(clone, snapshot))
+        LOG.debug('_ensure_clone_exists() creating %s from %s', clone, snapshot)
         cmd = [
             'zfs', 'clone',
             '-o', 'com.sun:auto-snapshot=false',
@@ -118,7 +119,7 @@ def _ensure_clone_exists(clone, snapshot):
             clone
         ]
         subprocess.check_output(cmd, stderr=subprocess.STDOUT)
-        LOG.info('clone {} created'.format(clone))
+        LOG.info('clone %s created', clone)
 
 
 def _destroy_zfs_object(fsobj):
@@ -128,10 +129,10 @@ def _destroy_zfs_object(fsobj):
     :param fsobj: name of ZFS data set to destroy
 
     """
-    LOG.debug('_destroy_zfs_object() destroying {}'.format(fsobj))
+    LOG.debug('_destroy_zfs_object() destroying %s', fsobj)
     subprocess.check_output(['zfs', 'destroy', fsobj],
                             stderr=subprocess.STDOUT)
-    LOG.info('zfs data set {} destroyed'.format(fsobj))
+    LOG.info('zfs data set %s destroyed', fsobj)
 
 
 @contextmanager
@@ -196,7 +197,7 @@ def _ensure_vault_exists(tag, layer2_obj, prefix):
     vault_name = '{}-{}'.format(prefix, tag)
     layer2_obj.layer1.create_vault(vault_name)
     response_data = layer2_obj.layer1.describe_vault(vault_name)
-    LOG.info('created vault {}'.format(vault_name))
+    LOG.info('created vault %s', vault_name)
     vault_obj = boto.glacier.vault.Vault(layer2_obj.layer1, response_data)
     return vault_name, vault_obj
 
@@ -287,14 +288,14 @@ def _create_archive(tag, config, section, paths, archive_name):
         devnull = os.open(os.devnull, os.O_RDWR)
         try:
             with pop_chdir(root):
-                LOG.debug('_create_archive() compressing {}'.format(archive_name))
+                LOG.debug('_create_archive() compressing %s', archive_name)
                 tar_cmd = _build_tar_cmd(config, section, archive_name, paths)
-                LOG.debug('_create_archive(): {}'.format(tar_cmd))
+                LOG.debug('_create_archive(): %s', tar_cmd)
                 tar = subprocess.Popen(tar_cmd,
                                        stdout=subprocess.PIPE,
                                        stderr=devnull)
                 split_cmd = _build_split_cmd(config, archive_name)
-                LOG.debug('_create_archive(): {}'.format(split_cmd))
+                LOG.debug('_create_archive(): %s', split_cmd)
                 split = subprocess.Popen(split_cmd,
                                          stdin=tar.stdout,
                                          stdout=subprocess.PIPE,
@@ -306,7 +307,7 @@ def _create_archive(tag, config, section, paths, archive_name):
                 if tar.returncode != 0 and tar.returncode is not None:
                     raise subprocess.CalledProcessError(tar.returncode, "tar")
                 if split.returncode != 0 and split.returncode is not None:
-                    LOG.error('split output: {}'.format(out))
+                    LOG.error('split output: %s', out)
                     raise subprocess.CalledProcessError(split.returncode, "split")
         except:
             LOG.exception('archive processing failed')
@@ -323,16 +324,13 @@ def _create_archive(tag, config, section, paths, archive_name):
 def _upload_archive(vault_obj, part, desc):
     """Upload the given part and return an archive identifier.
 
-    Will retry if an unexpected HTTP response error is raised.
+    Will retry if certain errors are raised.
 
     :type vault_obj: :class:`boto.glacier.vault.Vault`
     :param vault_obj: Glacier vault object.
 
-    :type part: str
-    :param part: name of file to upload.
-
-    :type desc: str
-    :param desc: description for the archive.
+    :param str part: name of file to upload.
+    :param str desc: description for the archive.
 
     :rtype: str
     :return: archive identifier.
@@ -343,9 +341,17 @@ def _upload_archive(vault_obj, part, desc):
         try:
             archive_id = vault_obj.upload_archive(part, desc)
         except UnexpectedHTTPResponseError as err:
-            LOG.warning('upload of {} failed due to {}, retrying...'.format(desc, err))
+            LOG.warning('upload of %s failed due to %s, retrying...', desc, err)
         except ssl.SSLError as err:
-            LOG.warning('upload of {} failed due to {}, retrying...'.format(desc, err))
+            LOG.warning('upload of %s failed due to %s, retrying...', desc, err)
+        except socket.error as err:
+            LOG.warning('upload of %s failed due to %s, retrying...', desc, err)
+        except socket.herror as err:
+            LOG.warning('upload of %s failed due to %s, retrying...', desc, err)
+        except socket.gaierror as err:
+            LOG.warning('upload of %s failed due to %s, retrying...', desc, err)
+        except socket.timeout as err:
+            LOG.warning('upload of %s failed due to %s, retrying...', desc, err)
     return archive_id
 
 
@@ -370,7 +376,7 @@ def _process_vault(tag, config, section, name, layer2_obj):
     """
     # ensure the vault exists
     vault_name, vault_obj = _ensure_vault_exists(tag, layer2_obj, name)
-    LOG.info('processing vault {}'.format(vault_name))
+    LOG.info('processing vault %s', vault_name)
     # ensure a zfs snapshot exists
     dataset = config.get(section, 'dataset')
     snapshot_name = _ensure_snapshot_exists(tag, dataset)
@@ -386,33 +392,33 @@ def _process_vault(tag, config, section, name, layer2_obj):
         for entry in config.get(section, archive).split(','):
             paths.append(os.path.join(clone_path, entry.strip()))
         archive_name = archive[len(ARCHIVE_PREFIX):]
-        LOG.debug('_process_vault() processing archive {}'.format(archive_name))
+        LOG.debug('_process_vault() processing archive %s', archive_name)
         parts_dir = None
         for part in _create_archive(tag, config, section, paths, archive_name):
             # sleep until we reach the 'go' time
             while not is_go_time(config, time.localtime()):
                 LOG.debug('_process_vault() sleeping...')
                 time.sleep(60 * 10)
-            LOG.debug('_process_vault() processing archive {}'.format(part))
+            LOG.debug('_process_vault() processing archive %s', part)
             start_time = time.time()
             desc = 'archive:{};;file:{}'.format(archive_name, os.path.basename(part))
-            LOG.info('uploading {}...'.format(desc))
+            LOG.info('uploading %s...', desc)
             archive_id = _upload_archive(vault_obj, part, desc)
             elapsed = (time.time() - start_time) / 60
             LOG.info('uploaded archive {} to vault {} in {:.1f} minutes'.format(
                 archive_id, vault_name, elapsed))
             # remove each part as it is uploaded
             os.unlink(part)
-            LOG.info('Finished archive {}'.format(part))
+            LOG.info('finished part %s', part)
             if parts_dir is None:
                 parts_dir = os.path.dirname(part)
         # remove the temporary working directory
         os.rmdir(parts_dir)
-        LOG.info('finished archive {}'.format(archive_name))
+        LOG.info('finished archive %s', archive_name)
     # remove the ZFS datasets only if successfully backed up
     _destroy_zfs_object(clone_name)
     _destroy_zfs_object(snapshot_name)
-    LOG.info('processing vault {} completed'.format(vault_name))
+    LOG.info('processing vault %s completed', vault_name)
 
 
 def _perform_backup(config):
@@ -441,7 +447,7 @@ def _perform_backup(config):
     # after successful completion, delete the meta data
     if success:
         os.unlink(METADATA_FILE)
-        LOG.debug('_perform_backup() deleted {}'.format(METADATA_FILE))
+        LOG.debug('_perform_backup() deleted %s', METADATA_FILE)
 
 
 def _load_or_compute_tag():
@@ -449,7 +455,7 @@ def _load_or_compute_tag():
     config = ConfigParser.ConfigParser()
     if os.path.exists(METADATA_FILE):
         # restore the last saved tag from before the crash
-        LOG.debug('_load_or_compute_tag() reading {}'.format(METADATA_FILE))
+        LOG.debug('_load_or_compute_tag() reading %s', METADATA_FILE)
         config.read(METADATA_FILE)
         tag = config.get('meta', 'tag')
     else:
@@ -459,7 +465,7 @@ def _load_or_compute_tag():
         config.set('meta', 'tag', tag)
         with open(METADATA_FILE, 'w') as fobj:
             config.write(fobj)
-        LOG.debug('_load_or_compute_tag() saved {}'.format(METADATA_FILE))
+        LOG.debug('_load_or_compute_tag() saved %s', METADATA_FILE)
     return tag
 
 
