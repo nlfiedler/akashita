@@ -1,8 +1,8 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # -------------------------------------------------------------------
 #
-# Copyright (c) 2014 Nathan Fiedler
+# Copyright (c) 2014-2016 Nathan Fiedler
 #
 # This file is provided to you under the Apache License,
 # Version 2.0 (the "License"); you may not use this file
@@ -25,83 +25,57 @@ This script is used to query most of the interesting data regarding vaults,
 including the list of vaults, inventory of vaults, and jobs related to
 vaults.
 
-Requires Amazon Web Services module boto (https://github.com/boto/boto)
+Requires Amazon Web Services module boto3 (https://github.com/boto/boto3)
 
 """
 
 import argparse
-import logging
-import os
 import sys
 
-import boto.glacier
-from boto.glacier.exceptions import UnexpectedHTTPResponseError
-import boto.glacier.layer2
-import boto.glacier.vault
+import boto3
 
-try:
-    import akashita
-except ImportError:
-    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-    import akashita
-
-LOG = logging.getLogger('akashita')
+ACCOUNT_ID = '-'
 
 
-def _print_regions():
-    """List the regions available for Amazon Glacier."""
-    names = [region.name for region in boto.glacier.regions()]
-    names.sort()
-    for name in names:
-        print(name)
-
-
-def _print_vaults(layer2_obj):
-    """List information about vaults on Amazon Glacier.
-
-    :type layer2_obj: :class:`glacier.layer2.Layer2`
-    :param layer2_obj: Layer2 API instance
-
-    """
-    vaults = layer2_obj.list_vaults()
+def _print_vaults():
+    """List information about vaults on Amazon Glacier."""
+    glacier = boto3.resource('glacier')
+    vaults = glacier.vaults.all()
     max_name_len = 0
     max_size_len = 0
+    number_of_vaults = 0
     for vault in vaults:
-        if len(vault.arn) > max_name_len:
-            max_name_len = len(vault.arn)
-        size = "{:,}".format(vault.size)
+        if len(vault.vault_arn) > max_name_len:
+            max_name_len = len(vault.vault_arn)
+        size = "{:,}".format(int(vault.size_in_bytes / 1048576))
         if len(size) > max_size_len:
             max_size_len = len(size)
+        number_of_vaults += 1
     total_size = 0
     num_archives = 0
+    print("{0:{aw}} || {1:24} || {2:5} || {3:>{sw}}".format(
+        "Vault ARN (/name)", "Creation Date", "Files", "MB", aw=max_name_len, sw=max_size_len))
     for vault in vaults:
-        total_size += vault.size
+        total_size += vault.size_in_bytes
         num_archives += vault.number_of_archives
-        print("{0:{aw}} || {1} || {2:4} || {3:>{sw},}".format(
-            vault.arn, vault.creation_date, vault.number_of_archives, vault.size,
-            aw=max_name_len, sw=max_size_len))
-    print("Number of vaults: {0}".format(len(vaults)))
+        print("{0:{aw}} || {1} || {2:5} || {3:>{sw},}".format(
+            vault.vault_arn, vault.creation_date, vault.number_of_archives,
+            int(vault.size_in_bytes / 1048576), aw=max_name_len, sw=max_size_len))
+    print("Number of vaults: {0}".format(number_of_vaults))
     print("Number of archives: {0}".format(num_archives))
-    print("Total size: {0:,} MB".format(total_size / 1048576))
+    print("Total size: {0:,} MB".format(int(total_size / 1048576)))
 
 
-def _request_inventory(layer2_obj, vault_name):
+def _request_inventory(vault_name):
     """Initiate a job to get the inventory of the named vault.
 
-    :type layer2_obj: :class:`glacier.layer2.Layer2`
-    :param layer2_obj: Layer2 API instance
-
-    :type vault_name: str
-    :param vault_name: name of the Glacier vault to query.
+    :param str vault_name: name of the Glacier vault to query.
 
     """
-    try:
-        response_data = layer2_obj.layer1.describe_vault(vault_name)
-        vault_obj = boto.glacier.vault.Vault(layer2_obj.layer1, response_data)
-        job_id = vault_obj.retrieve_inventory()
-        print("Job ID: {}".format(job_id))
-    except UnexpectedHTTPResponseError:
-        sys.stderr.write('No such vault!\n')
+    glacier = boto3.resource('glacier')
+    vault = glacier.Vault(ACCOUNT_ID, vault_name)
+    job = vault.initiate_inventory_retrieval()
+    print("Job ID: {}".format(job.id))
 
 
 def _print_job(job_obj, print_id=False):
@@ -125,80 +99,45 @@ def _print_job(job_obj, print_id=False):
         print("Status Message: {}".format(job_obj.status_message))
 
 
-def _query_job_status(layer2_obj, job_id, vault_name):
+def _query_job_status(job_id, vault_name):
     """Query the status of a job.
 
-    :type layer2_obj: :class:`glacier.layer2.Layer2`
-    :param layer2_obj: Layer2 API instance
-
-    :type job_id: str
-    :param job_id: job identifier.
-
-    :type vault_name: str
-    :param vault_name: name of vault for which to list jobs.
+    :param str job_id: job identifier.
+    :param str vault_name: name of vault for which to list jobs.
 
     """
-    try:
-        response_data = layer2_obj.layer1.describe_vault(vault_name)
-    except UnexpectedHTTPResponseError:
-        sys.stderr.write('No such vault!\n')
-        return
-    vault_obj = boto.glacier.vault.Vault(layer2_obj.layer1, response_data)
-    try:
-        job_obj = vault_obj.get_job(job_id)
-        _print_job(job_obj)
-    except UnexpectedHTTPResponseError:
-        sys.stderr.write('No such job for this vault!\n')
+    glacier = boto3.resource('glacier')
+    job = glacier.Job(ACCOUNT_ID, vault_name, job_id)
+    _print_job(job)
 
 
-def _list_vault_jobs(layer2_obj):
-    """Retrieve the list of jobs associated with the named vault.
-
-    :type layer2_obj: :class:`glacier.layer2.Layer2`
-    :param layer2_obj: Layer2 API instance
-
-    """
-    vaults = layer2_obj.list_vaults()
+def _list_vault_jobs():
+    """Retrieve the list of jobs for all vaults."""
+    glacier = boto3.resource('glacier')
+    vaults = glacier.vaults.all()
     for vault in vaults:
-        response_data = layer2_obj.layer1.describe_vault(vault.name)
-        vault_obj = boto.glacier.vault.Vault(layer2_obj.layer1, response_data)
-        jobs = vault_obj.list_jobs()
-        if jobs:
-            print("-"*70)
-            print('Jobs for vault {}...'.format(vault.name))
-            for job_obj in jobs:
-                print('')
-                _print_job(job_obj, print_id=True)
-                print('')
+        jobs = vault.jobs.all()
+        print('-'*70)
+        print('Jobs for vault {}...'.format(vault.vault_name))
+        for job_obj in jobs:
+            print('')
+            _print_job(job_obj, print_id=True)
+            print('')
 
 
-def _print_job_output(layer2_obj, job_id, vault_name):
+def _print_job_output(job_id, vault_name):
     """Retrieve the output of an inventory retrieval job.
 
-    :type layer2_obj: :class:`glacier.layer2.Layer2`
-    :param layer2_obj: Layer2 API instance
-
-    :type job_id: str
-    :param job_id: job identifier.
-
-    :type vault_name: str
-    :param vault_name: name of vault associated with the given job.
+    :param str job_id: job identifier.
+    :param str vault_name: name of vault associated with the given job.
 
     """
-    try:
-        response_data = layer2_obj.layer1.describe_vault(vault_name)
-    except UnexpectedHTTPResponseError:
-        sys.stderr.write('No such vault!\n')
-        return
-    vault_obj = boto.glacier.vault.Vault(layer2_obj.layer1, response_data)
-    try:
-        job_obj = vault_obj.get_job(job_id)
-    except UnexpectedHTTPResponseError:
-        sys.stderr.write('No such job for this vault!\n')
-        return
-    if job_obj.completed:
-        if job_obj.action == 'InventoryRetrieval':
-            output_map = job_obj.get_output()
+    glacier = boto3.resource('glacier')
+    vault = glacier.Vault(ACCOUNT_ID, vault_name)
+    job = vault.Job(job_id)
+    if job.completed:
+        if job.action == 'InventoryRetrieval':
+            output_map = job.get_output()
             output_keys = output_map.keys()
             output_keys.sort()
             for output_key in output_keys:
@@ -216,9 +155,9 @@ def _print_job_output(layer2_obj, job_id, vault_name):
                     print("{}: {}".format(output_key, output_map[output_key]))
         else:
             print("Do not know what to do with this job:")
-            print(job_obj.get_output())
+            print(job.get_output())
     else:
-        print("Job not yet completed!")
+        print("Job still in progress")
 
 
 def main():
@@ -227,8 +166,6 @@ def main():
     parser = argparse.ArgumentParser(description="Query contents of vaults on Amazon Glacier.")
     parser.add_argument("-V", "--vaults", action='store_true',
                         help="list vaults on Amazon Glacier")
-    parser.add_argument("-R", "--regions", action='store_true',
-                        help="list available Amazon Glacier regions")
     parser.add_argument('-I', '--inventory',
                         help='request inventory of named vault')
     parser.add_argument('-L', '--joblist', action='store_true',
@@ -241,34 +178,23 @@ def main():
                         help='name of vault to query')
     args = parser.parse_args()
 
-    # load configuration and prepare Glacier API
-    config = akashita.load_configuration(LOG)
-    akashita.configure_logging(LOG, config)
-    aws_access_key_id = config.get('aws', 'access_key')
-    aws_secret_access_key = config.get('aws', 'secret_key')
-    region_name = config.get('aws', 'region_name')
-    layer2_obj = boto.glacier.layer2.Layer2(
-        aws_access_key_id, aws_secret_access_key, region_name=region_name)
-
     # perform one operation or another based on arguments
-    if args.regions:
-        _print_regions()
-    elif args.vaults:
-        _print_vaults(layer2_obj)
+    if args.vaults:
+        _print_vaults()
     elif args.inventory:
-        _request_inventory(layer2_obj, args.inventory)
+        _request_inventory(args.inventory)
     elif args.status:
         if args.vault is None:
             sys.stderr.write('The vault name is required for querying job status.\n')
             sys.exit(1)
-        _query_job_status(layer2_obj, args.status, args.vault)
+        _query_job_status(args.status, args.vault)
     elif args.output:
         if args.vault is None:
             sys.stderr.write('The vault name is required for getting job output.\n')
             sys.exit(1)
-        _print_job_output(layer2_obj, args.output, args.vault)
+        _print_job_output(args.output, args.vault)
     elif args.joblist:
-        _list_vault_jobs(layer2_obj)
+        _list_vault_jobs()
     else:
         parser.print_help()
 

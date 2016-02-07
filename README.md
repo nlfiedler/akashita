@@ -30,3 +30,20 @@ The current Python implementation is typically run as a background process, init
 $ echo '/usr/local/bin/backup.py' > job
 $ sudo at -m -f job now
 ```
+
+## Development Setup
+
+Currently some of the Python scripts use Python 2.7 and boto, while others use Python 3.x and the boto3 API. The following instructions are for Python 3 and boto3 only.
+
+### Mac OS X
+
+1. Install [Homebrew](http://brew.sh)
+1. `brew install python3`
+1. `pip3 install boto3`
+
+### FreeBSD
+
+1. `sudo pkg install python3`
+1. `wget https://bootstrap.pypa.io/get-pip.py`
+1. `sudo python3 get-pip.py`
+1. `sudo pip install boto3`
