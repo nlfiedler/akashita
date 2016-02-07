@@ -1,8 +1,8 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # -------------------------------------------------------------------
 #
-# Copyright (c) 2014 Nathan Fiedler
+# Copyright (c) 2014-2016 Nathan Fiedler
 #
 # This file is provided to you under the Apache License,
 # Version 2.0 (the "License"); you may not use this file
@@ -29,97 +29,61 @@ vault, hence the two separate command-line arguments for this script,
 job and the latter removes the empty vault, again based on a completed
 inventory retrieval job).
 
-Requires Amazon Web Services module boto (https://github.com/boto/boto)
+Requires Amazon Web Services module boto3 (https://github.com/boto/boto3)
 
 """
 
 import argparse
-import logging
-import os
+import json
 import sys
 
-from boto.glacier.exceptions import UnexpectedHTTPResponseError
-import boto.glacier.layer2
+import boto3
 
-try:
-    import akashita
-except ImportError:
-    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-    import akashita
-
-LOG = logging.getLogger('akashita')
+ACCOUNT_ID = '-'
 
 
-def _empty_vault(layer2_obj, job_id, vault_name):
+def _empty_vault(job_id, vault_name):
     """Remove the archives from the named vault.
 
-    :type layer2_obj: :class:`glacier.layer2.Layer2`
-    :param layer2_obj: Layer2 API instance
-
-    :type job_id: str
-    :param job_id: job identifier for the completed inventory job.
-
-    :type vault_name: str
-    :param vault_name: name of vault associated with the given job.
+    :param str job_id: job identifier for the completed inventory job.
+    :param str vault_name: name of vault associated with the given job.
 
     """
-    try:
-        response_data = layer2_obj.layer1.describe_vault(vault_name)
-    except UnexpectedHTTPResponseError:
-        sys.stderr.write('No such vault!\n')
-        return
-    vault_obj = boto.glacier.vault.Vault(layer2_obj.layer1, response_data)
-    try:
-        job_obj = vault_obj.get_job(job_id)
-    except UnexpectedHTTPResponseError:
-        sys.stderr.write('No such job for this vault!\n')
-        return
-    if job_obj.completed:
-        if job_obj.action == 'InventoryRetrieval':
-            output_map = job_obj.get_output()
+    glacier = boto3.resource('glacier')
+    job = glacier.Job(ACCOUNT_ID, vault_name, job_id)
+    if job.action == 'InventoryRetrieval':
+        if job.completed:
+            output_map = json.loads(job.get_output()['body'].read().decode('utf-8'))
             archive_list = output_map['ArchiveList']
             for archive_map in archive_list:
                 archive_id = archive_map['ArchiveId']
-                vault_obj.delete_archive(archive_id)
+                archive = glacier.Archive(ACCOUNT_ID, vault_name, archive_id)
+                archive.delete()
                 print("Deleted archive {}".format(archive_id))
         else:
-            print("Job is not an inventory retrieval job!")
+            print("Job still in progress")
     else:
-        print("Job not yet completed!")
+        print("Job is not an inventory retrieval job")
 
 
-def _delete_vault(layer2_obj, job_id, vault_name):
+def _delete_vault(job_id, vault_name):
     """Delete the empty vault.
 
-    :type layer2_obj: :class:`glacier.layer2.Layer2`
-    :param layer2_obj: Layer2 API instance
-
-    :type job_id: str
-    :param job_id: job identifier for the completed inventory job.
-
-    :type vault_name: str
-    :param vault_name: name of vault associated with the given job.
+    :param str job_id: job identifier for the completed inventory job.
+    :param str vault_name: name of vault associated with the given job.
 
     """
-    try:
-        response_data = layer2_obj.layer1.describe_vault(vault_name)
-    except UnexpectedHTTPResponseError:
-        sys.stderr.write('No such vault!\n')
-        return
-    vault_obj = boto.glacier.vault.Vault(layer2_obj.layer1, response_data)
-    try:
-        job_obj = vault_obj.get_job(job_id)
-    except UnexpectedHTTPResponseError:
-        sys.stderr.write('No such job for this vault!\n')
-        return
-    if job_obj.completed:
-        if job_obj.action == 'InventoryRetrieval':
-            vault_obj.delete()
+    glacier = boto3.resource('glacier')
+    vault = glacier.Vault(ACCOUNT_ID, vault_name)
+    job = glacier.Job(ACCOUNT_ID, vault_name, job_id)
+    if job.action == 'InventoryRetrieval':
+        if job.completed:
+            vault.delete()
             print("Deleted vault {}".format(vault_name))
         else:
-            print("Job is not an inventory retrieval job!")
+            print("Job still in progress")
     else:
-        print("Job not yet completed!")
+        print("Job is not an inventory retrieval job")
 
 
 def main():
@@ -134,25 +98,17 @@ def main():
                         help='name of vault to query')
     args = parser.parse_args()
 
-    # load configuration and prepare Glacier API
-    config = akashita.load_configuration(LOG)
-    aws_access_key_id = config.get('aws', 'access_key')
-    aws_secret_access_key = config.get('aws', 'secret_key')
-    region_name = config.get('aws', 'region_name')
-    layer2_obj = boto.glacier.layer2.Layer2(
-        aws_access_key_id, aws_secret_access_key, region_name=region_name)
-
     # perform one operation or another based on arguments
     if args.empty:
         if args.vault is None:
             sys.stderr.write('The vault name is required for emptying a vault.\n')
             sys.exit(1)
-        _empty_vault(layer2_obj, args.empty, args.vault)
+        _empty_vault(args.empty, args.vault)
     elif args.delete:
         if args.vault is None:
             sys.stderr.write('The vault name is required for deleting a vault.\n')
             sys.exit(1)
-        _delete_vault(layer2_obj, args.delete, args.vault)
+        _delete_vault(args.delete, args.vault)
 
 
 if __name__ == "__main__":
