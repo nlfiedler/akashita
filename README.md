@@ -4,19 +4,23 @@
 
 ## TODO
 
-* Collect requirements using the wiki
-* Convert the Python-based prototype to [Erlang/OTP](http://www.erlang.org)
-    - Need an Erlang wrapper around the Amazon Glacier API
-* Consider switching to Google Cloud Storage
-    - https://cloud.google.com/storage-nearline/
-    - https://cloud.google.com/storage/docs/json_api/
-
-## Implementation Notes
-
-* Use [gleber/erlcloud](https://github.com/gleber/erlcloud) to access Amazon Web Services
-    - Currently missing Glacier API
-    - Currently missing SNS API
-* Use 'heart' program to keep Erlang node running
+* Convert the Python-based prototype to something else
+    - Current Python 2.x solution requires patching Python due to HTTP bug
+    - Python is not robust or fault tolerant, unlike Erlang/OTP
+    - [Erlang](http://www.erlang.org)
+        + https://github.com/jkakar/aws-erlang (missing Glacier)
+        + https://github.com/gleber/erlcloud (missing Glacier)
+    - [Erlang](http://www.erlang.org)/[Python](https://www.python.org) hybrid
+        + Use Python 3.x and [boto3](https://github.com/boto/boto3) API
+        + Use a short Python script to upload each part
+        + The rest (processing vaults, archives) would be done in Erlang
+    - [Go](https://golang.org)
+        + https://github.com/aws/aws-sdk-go
+        + No more robust than Python
+    - [Rust](https://www.rust-lang.org)
+        + https://github.com/rusoto/rusoto
+        + No more robust than Python
+        + Missing Glacier API
 
 ## Usage
 

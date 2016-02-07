@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 # -------------------------------------------------------------------
 #
-# Copyright (c) 2014-2015 Nathan Fiedler
+# Copyright (c) 2014-2016 Nathan Fiedler
 #
 # This file is provided to you under the Apache License,
 # Version 2.0 (the "License"); you may not use this file
@@ -387,11 +387,14 @@ def _process_vault(tag, config, section, name, layer2_obj):
     _ensure_clone_exists(clone_name, snapshot_name)
     # process each of the archives specified in the config file
     archives = [n for n in config.options(section) if n.startswith(ARCHIVE_PREFIX)]
+    completed_archives = _read_completed_archives(name)
     for archive in archives:
+        archive_name = archive[len(ARCHIVE_PREFIX):]
+        if archive_name in completed_archives:
+            continue
         paths = []
         for entry in config.get(section, archive).split(','):
             paths.append(os.path.join(clone_path, entry.strip()))
-        archive_name = archive[len(ARCHIVE_PREFIX):]
         LOG.debug('_process_vault() processing archive %s', archive_name)
         parts_dir = None
         for part in _create_archive(tag, config, section, paths, archive_name):
@@ -415,6 +418,8 @@ def _process_vault(tag, config, section, name, layer2_obj):
         # remove the temporary working directory
         os.rmdir(parts_dir)
         LOG.info('finished archive %s', archive_name)
+        completed_archives.append(archive_name)
+        _write_completed_archives(name, completed_archives)
     # remove the ZFS datasets only if successfully backed up
     _destroy_zfs_object(clone_name)
     _destroy_zfs_object(snapshot_name)
@@ -437,12 +442,16 @@ def _perform_backup(config):
     # fetch or compute the tag for this backup operation
     tag = _load_or_compute_tag()
     success = True
+    completed_vaults = _read_completed_vaults()
     for section_name in vaults:
         try:
             vault_name = section_name[len(VAULT_PREFIX):]
-            _process_vault(tag, config, section_name, vault_name, layer2_obj)
+            if vault_name not in completed_vaults:
+                _process_vault(tag, config, section_name, vault_name, layer2_obj)
+                completed_vaults.append(vault_name)
+                _write_completed_vaults(completed_vaults)
         except:
-            LOG.exception('vault processing failed for {}'.format(section_name))
+            LOG.exception('vault processing failed for %s', section_name)
             success = False
     # after successful completion, delete the meta data
     if success:
@@ -467,6 +476,74 @@ def _load_or_compute_tag():
             config.write(fobj)
         LOG.debug('_load_or_compute_tag() saved %s', METADATA_FILE)
     return tag
+
+
+def _read_completed_vaults():
+    """Return the list of vaults that have already been completed."""
+    config = ConfigParser.ConfigParser()
+    if os.path.exists(METADATA_FILE):
+        LOG.debug('_read_completed_vaults() reading %s', METADATA_FILE)
+        config.read(METADATA_FILE)
+        if config.has_option('meta', 'vaults'):
+            vaults = config.get('meta', 'vaults')
+            return vaults.split(',')
+    return []
+
+
+def _write_completed_vaults(vaults):
+    """Save the list of completed vaults to the metadata file.
+
+    :param list vaults: list of vault names
+
+    """
+    config = ConfigParser.ConfigParser()
+    if os.path.exists(METADATA_FILE):
+        LOG.debug('_write_completed_vaults() reading %s', METADATA_FILE)
+        config.read(METADATA_FILE)
+    if not config.has_section('meta'):
+        config.add_section('meta')
+    config.set('meta', 'vaults', ','.join(vaults))
+    with open(METADATA_FILE, 'w') as fobj:
+        config.write(fobj)
+    LOG.debug('_write_completed_vaults() saved %s', METADATA_FILE)
+
+
+def _read_completed_archives(vault):
+    """Return the list of archives that have already been completed.
+
+    :param str vault: name of vault.
+    :return: list of completed archives in named vault.
+
+    """
+    config = ConfigParser.ConfigParser()
+    if os.path.exists(METADATA_FILE):
+        LOG.debug('_read_completed_archives() reading %s', METADATA_FILE)
+        config.read(METADATA_FILE)
+        section_name = VAULT_PREFIX + vault
+        if config.has_option(section_name, 'archives'):
+            archives = config.get(section_name, 'archives')
+            return archives.split(',')
+    return []
+
+
+def _write_completed_archives(vault, archives):
+    """Save the list of completed archives to the metadata file.
+
+    :param str vault: name of vault.
+    :param list archives: list of archive names
+
+    """
+    config = ConfigParser.ConfigParser()
+    if os.path.exists(METADATA_FILE):
+        LOG.debug('_write_completed_archives() reading %s', METADATA_FILE)
+        config.read(METADATA_FILE)
+    section_name = VAULT_PREFIX + vault
+    if not config.has_section(section_name):
+        config.add_section(section_name)
+    config.set(section_name, 'archives', ','.join(archives))
+    with open(METADATA_FILE, 'w') as fobj:
+        config.write(fobj)
+    LOG.debug('_write_completed_archives() saved %s', METADATA_FILE)
 
 
 def main():
