@@ -30,6 +30,7 @@ Requires Amazon Web Services module boto3 (https://github.com/boto/boto3)
 """
 
 import argparse
+import json
 import sys
 
 import boto3
@@ -134,22 +135,20 @@ def _print_job_output(job_id, vault_name):
 
     """
     glacier = boto3.resource('glacier')
-    vault = glacier.Vault(ACCOUNT_ID, vault_name)
-    job = vault.Job(job_id)
+    job = glacier.Job(ACCOUNT_ID, vault_name, job_id)
     if job.completed:
         if job.action == 'InventoryRetrieval':
-            output_map = job.get_output()
+            output_map = json.loads(job.get_output()['body'].read().decode('utf-8'))
             output_keys = output_map.keys()
-            output_keys.sort()
             for output_key in output_keys:
                 if output_key == 'ArchiveList':
                     if output_map[output_key]:
                         print(output_key)
                         for archive_map in output_map[output_key]:
                             archive_keys = archive_map.keys()
-                            archive_keys.sort()
                             for archive_key in archive_keys:
                                 print("\t{}: {}".format(archive_key, archive_map[archive_key]))
+                            print('\t' + '-' * 70)
                     else:
                         print("ArchiveList: (empty)")
                 else:
