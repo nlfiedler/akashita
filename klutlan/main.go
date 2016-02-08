@@ -26,6 +26,7 @@ import (
 	"os"
 )
 
+// getAllVaults retrieves the list of all vaults.
 func getAllVaults(svc *glacier.Glacier) *glacier.ListVaultsOutput {
 	params := &glacier.ListVaultsInput{
 		AccountId: aws.String("-"),
@@ -124,4 +125,7 @@ func main() {
 		}
 		printJobStatus(*status, *vault)
 	}
+
+	// When all else fails, print the help message.
+	flag.PrintDefaults()
 }

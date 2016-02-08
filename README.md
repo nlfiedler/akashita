@@ -42,7 +42,7 @@ Currently some of the Python scripts use Python 2.7 and boto, while others use P
 
 ### Go
 
-Some of the Python scripts are being rewritten using Go. Hence you will need Go 1.5 or higher to be installed, along with the AWS for Go SDK. This is easily done using the following `go get` command:
+Some of the Python scripts are being rewritten using Go. Hence you will need Go 1.5 or higher to be installed, along with the AWS SDK for Go. This is easily done using the following `go get` command:
 
 ```
 $ go get -u github.com/aws/aws-sdk-go/...
