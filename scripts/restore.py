@@ -1,8 +1,8 @@
-#!/usr/bin/env python2.7
+#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # -------------------------------------------------------------------
 #
-# Copyright (c) 2014 Nathan Fiedler
+# Copyright (c) 2014-2016 Nathan Fiedler
 #
 # This file is provided to you under the Apache License,
 # Version 2.0 (the "License"); you may not use this file
@@ -28,91 +28,68 @@ the archive IDs. Then use this script to initiate the archive retrieval.
 Once _that_ job is complete, then you can fetch the job output using this
 script.
 
-Requires Amazon Web Services module boto (https://github.com/boto/boto)
+Requires Amazon Web Services module boto3 (https://github.com/boto/boto3)
 
 """
 
 import argparse
-import logging
 import os
-import sys
 import tempfile
 import time
 
-import boto.glacier
-from boto.glacier.exceptions import UnexpectedHTTPResponseError
-import boto.glacier.layer2
-import boto.glacier.vault
+import boto3
 
-try:
-    import akashita
-except ImportError:
-    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-    import akashita
-
-LOG = logging.getLogger('akashita')
+ACCOUNT_ID = '-'
 
 
-def _request_archive(layer2_obj, archive_id, vault_name):
+def _request_archive(archive_id, vault_name):
     """Initiate a job to retrieve an archive of the named vault.
 
-    :type layer2_obj: :class:`glacier.layer2.Layer2`
-    :param layer2_obj: Layer2 API instance
-
-    :type archive_id: str
-    :param archive_id: archive identifier
-
-    :type vault_name: str
-    :param vault_name: name of the Glacier vault to query
+    :param str archive_id: archive identifier
+    :param str vault_name: name of the Glacier vault to query
 
     """
-    try:
-        response_data = layer2_obj.layer1.describe_vault(vault_name)
-    except UnexpectedHTTPResponseError:
-        sys.stderr.write('No such vault!\n')
-        return
-    vault_obj = boto.glacier.vault.Vault(layer2_obj.layer1, response_data)
-    job_obj = vault_obj.retrieve_archive(archive_id)
-    print("Job ID: {}".format(job_obj.id))
+    glacier = boto3.resource('glacier')
+    archive = glacier.Archive(ACCOUNT_ID, vault_name, archive_id)
+    job = archive.initiate_archive_retrieval()
+    # Allow for easy parsing by other programs.
+    print("{}\t{}".format(job.id, vault_name))
 
 
-def _save_job_output(layer2_obj, job_id, vault_name):
+def _save_job_output(job_id, vault_name):
     """Retrieve the output of an archive retrieval job.
 
-    :type layer2_obj: :class:`glacier.layer2.Layer2`
-    :param layer2_obj: Layer2 API instance
-
-    :type job_id: str
-    :param job_id: job identifier
-
-    :type vault_name: str
-    :param vault_name: name of vault associated with the given job
+    :param str job_id: job identifier
+    :param str vault_name: name of vault associated with the given job
 
     """
-    try:
-        response_data = layer2_obj.layer1.describe_vault(vault_name)
-    except UnexpectedHTTPResponseError:
-        sys.stderr.write('No such vault!\n')
-        return
-    vault_obj = boto.glacier.vault.Vault(layer2_obj.layer1, response_data)
-    try:
-        job_obj = vault_obj.get_job(job_id)
-    except UnexpectedHTTPResponseError:
-        sys.stderr.write('No such job for this vault!\n')
-        return
-    if job_obj.completed:
-        if job_obj.action == 'ArchiveRetrieval':
+    glacier = boto3.resource('glacier')
+    job = glacier.Job(ACCOUNT_ID, vault_name, job_id)
+    if job.action == 'ArchiveRetrieval':
+        if job.completed:
             _, filename = tempfile.mkstemp(suffix='.dat', prefix='job_output_', dir=os.getcwd())
             print("Downloading job output to {}...".format(filename))
             start_time = time.time()
-            job_obj.download_to_file(filename)
+            _download_to_file(job, filename)
             elapsed = (time.time() - start_time) / 60
             print('Download completed in {:.1f} minutes'.format(elapsed))
         else:
-            print("Do not know what to do with this job:")
-            print(job_obj.get_output())
+            print("Job not yet completed!")
     else:
-        print("Job not yet completed!")
+        print("Job is not an archive retrieval job")
+
+
+def _download_to_file(job, filename):
+    """Download the job output to the named file."""
+    output = job.get_output()
+    body = output['body']
+    with open(filename, 'wb') as fobj:
+        while True:
+            buf = body.read(amt=1024*1024)
+            fobj.write(buf)
+            if not buf:
+                break
+    body.close()
 
 
 def main():
@@ -127,20 +104,11 @@ def main():
                         help='name of vault for job/archive')
     args = parser.parse_args()
 
-    # load configuration and prepare Glacier API
-    config = akashita.load_configuration(LOG)
-    akashita.configure_logging(LOG, config)
-    aws_access_key_id = config.get('aws', 'access_key')
-    aws_secret_access_key = config.get('aws', 'secret_key')
-    region_name = config.get('aws', 'region_name')
-    layer2_obj = boto.glacier.layer2.Layer2(
-        aws_access_key_id, aws_secret_access_key, region_name=region_name)
-
     # perform one operation or another based on arguments
     if args.request:
-        _request_archive(layer2_obj, args.request, args.vault)
+        _request_archive(args.request, args.vault)
     elif args.fetch:
-        _save_job_output(layer2_obj, args.fetch, args.vault)
+        _save_job_output(args.fetch, args.vault)
     else:
         parser.print_help()
 
