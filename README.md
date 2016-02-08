@@ -7,13 +7,17 @@
 * Convert the Python-based prototype to something else
     - Current Python 2.x solution requires patching Python due to HTTP bug
     - Python is not robust or fault tolerant, unlike Erlang/OTP
-    - [Erlang](http://www.erlang.org)
-        + https://github.com/jkakar/aws-erlang (missing Glacier)
-        + https://github.com/gleber/erlcloud (missing Glacier)
+    - [Erlang](http://www.erlang.org)/[Go](https://golang.org)
+        + https://github.com/aws/aws-sdk-go
+        + Go for the actual Glacier operations
+        + Erlang for the rest (processing vaults, archives)
     - [Erlang](http://www.erlang.org)/[Python](https://www.python.org) hybrid
         + Use Python 3.x and [boto3](https://github.com/boto/boto3) API
         + Use a short Python script to upload each part
         + The rest (processing vaults, archives) would be done in Erlang
+    - [Erlang](http://www.erlang.org)
+        + https://github.com/jkakar/aws-erlang (missing Glacier)
+        + https://github.com/gleber/erlcloud (missing Glacier)
     - [Go](https://golang.org)
         + https://github.com/aws/aws-sdk-go
         + No more robust than Python
