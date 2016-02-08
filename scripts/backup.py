@@ -52,13 +52,8 @@ from boto.glacier.exceptions import UnexpectedHTTPResponseError
 import boto.glacier.layer2
 import boto.glacier.vault
 
-try:
-    import akashita
-except ImportError:
-    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-    import akashita
-
-
+DEFAULT_LOG_FORMAT = '[%(process)d] <%(asctime)s> (%(name)s) {%(levelname)s} %(message)s'
+DEFAULT_LOG_FILE = 'akashita.log'
 VAULT_PREFIX = 'vault_'
 ARCHIVE_PREFIX = 'archive_'
 METADATA_FILE = '.akashita-meta'
@@ -546,14 +541,63 @@ def _write_completed_archives(vault, archives):
     LOG.debug('_write_completed_archives() saved %s', METADATA_FILE)
 
 
+def _load_configuration(log):
+    """Find and load the configuration file.
+
+    :param log: instance of logging.Logger.
+
+    """
+    # no interpolation, since logging record format includes %
+    config = ConfigParser.RawConfigParser()
+    fname = os.path.expanduser('~/.akashita')
+    if os.path.exists(fname):
+        log.debug('_load_configuration() reading {}'.format(fname))
+        config.read(fname)
+    elif os.path.exists('/usr/local/etc/akashita.conf'):
+        log.debug('_load_configuration() reading /usr/local/etc/akashita.conf')
+        config.read('/usr/local/etc/akashita.conf')
+    elif os.path.exists('/etc/akashita.conf'):
+        log.debug('_load_configuration() reading /etc/akashita.conf')
+        config.read('/etc/akashita.conf')
+    else:
+        log.error("Could not find configuration file!")
+        sys.stderr.write("Could not find configuration file!\n")
+        sys.exit(1)
+    return config
+
+
+def _configure_logging(log, config):
+    """Configure the logger for our purposes.
+
+    :param log: instance of logging.Logger.
+    :param config: ConfigParser instance with akashita configuration.
+
+    """
+    log.setLevel(logging.DEBUG)
+    if config.has_option('logging', 'file'):
+        log_file = config.get('logging', 'file')
+    else:
+        log_file = DEFAULT_LOG_FILE
+    handler = logging.FileHandler(log_file)
+    handler.setLevel(logging.DEBUG)
+    if config.has_option('logging', 'format'):
+        log_format = config.get('logging', 'format')
+        log_format = log_format.strip('"').strip("'")
+    else:
+        log_format = DEFAULT_LOG_FORMAT
+    formatter = logging.Formatter(log_format)
+    handler.setFormatter(formatter)
+    log.addHandler(handler)
+
+
 def main():
     """Create archives and upload to vaults on Amazon Glacier."""
     parser = argparse.ArgumentParser(description="Backup files to Amazon Glacier.")
     parser.add_argument("-T", "--test", action="store_true",
                         help="split archives into smaller files")
     args = parser.parse_args()
-    config = akashita.load_configuration(LOG)
-    akashita.configure_logging(LOG, config)
+    config = _load_configuration(LOG)
+    _configure_logging(LOG, config)
     config.add_section('split')
     if args.test:
         config.set('split', 'size', '2M')
