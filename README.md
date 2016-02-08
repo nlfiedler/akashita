@@ -11,20 +11,6 @@
         + https://github.com/aws/aws-sdk-go
         + Go for the actual Glacier operations
         + Erlang for the rest (processing vaults, archives)
-    - [Erlang](http://www.erlang.org)/[Python](https://www.python.org) hybrid
-        + Use Python 3.x and [boto3](https://github.com/boto/boto3) API
-        + Use a short Python script to upload each part
-        + The rest (processing vaults, archives) would be done in Erlang
-    - [Erlang](http://www.erlang.org)
-        + https://github.com/jkakar/aws-erlang (missing Glacier)
-        + https://github.com/gleber/erlcloud (missing Glacier)
-    - [Go](https://golang.org)
-        + https://github.com/aws/aws-sdk-go
-        + No more robust than Python
-    - [Rust](https://www.rust-lang.org)
-        + https://github.com/rusoto/rusoto
-        + No more robust than Python
-        + Missing Glacier API
 
 ## Usage
 
@@ -37,17 +23,34 @@ $ sudo at -m -f job now
 
 ## Development Setup
 
+### Python
+
 Currently some of the Python scripts use Python 2.7 and boto, while others use Python 3.x and the boto3 API. The following instructions are for Python 3 and boto3 only.
 
-### Mac OS X
+#### Mac OS X
 
 1. Install [Homebrew](http://brew.sh)
 1. `brew install python3`
 1. `pip3 install boto3`
 
-### FreeBSD
+#### FreeBSD
 
 1. `sudo pkg install python3`
 1. `wget https://bootstrap.pypa.io/get-pip.py`
 1. `sudo python3 get-pip.py`
 1. `sudo pip install boto3`
+
+### Go
+
+Some of the Python scripts are being rewritten using Go. Hence you will need Go 1.5 or higher to be installed, along with the AWS for Go SDK. This is easily done using the following `go get` command:
+
+```
+$ go get -u github.com/aws/aws-sdk-go/...
+```
+
+To build the Go code, use `go install` and then run the generated `klutlan` command, like so:
+
+```
+$ go install github.com/nlfiedler/akashita/klutlan
+$ $GOPATH/bin/klutlan -vaults
+```
