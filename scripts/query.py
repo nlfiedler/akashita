@@ -75,7 +75,8 @@ def _request_inventory(vault_name):
     glacier = boto3.resource('glacier')
     vault = glacier.Vault(ACCOUNT_ID, vault_name)
     job = vault.initiate_inventory_retrieval()
-    print("Job ID: {}".format(job.id))
+    # Allow for easy parsing by other programs.
+    print("{}\t{}".format(job.id, vault_name))
 
 
 def _print_job(job_obj, print_id=False):
@@ -173,7 +174,7 @@ def main():
     parser.add_argument('-S', '--status', metavar='JOBID',
                         help='query status of job')
     parser.add_argument('-O', '--output', metavar='JOBID',
-                        help='retrieve job output to a file')
+                        help='retrieve job output to standard output')
     parser.add_argument('vault', metavar='V', nargs='?',
                         help='name of vault to query')
     args = parser.parse_args()
