@@ -18,7 +18,9 @@
 package main
 
 import (
+	"bytes"
 	"encoding/hex"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"github.com/aws/aws-sdk-go/aws"
@@ -145,9 +147,9 @@ func printJobStatus(jobId, vault string) {
 	fmt.Println(resp)
 }
 
-// printJobOutput displays the final result of the (inventory retrieval) job.
+// printInventory displays the final result of the (inventory retrieval) job.
 // Exits with non-zero status if the job is not yet complete.
-func printJobOutput(jobId, vault string) {
+func printInventory(jobId, vault string) {
 	svc := glacier.New(session.New())
 	params := &glacier.DescribeJobInput{
 		AccountId: aws.String("-"),
@@ -171,14 +173,20 @@ func printJobOutput(jobId, vault string) {
 				fmt.Println(err.Error())
 				os.Exit(1)
 			}
-			io.Copy(os.Stdout, job_output.Body)
+			// format the json for readability
+			var output bytes.Buffer
+			io.Copy(&output, job_output.Body)
+			var out bytes.Buffer
+			json.Indent(&out, output.Bytes(), "", "    ")
+			out.WriteTo(os.Stdout)
+			fmt.Println()
 		} else {
 			fmt.Println("not an inventory retrieval job")
 			os.Exit(2)
 		}
 	} else {
 		fmt.Println("job still in progress")
-		os.Exit(1)
+		os.Exit(2)
 	}
 }
 
@@ -261,12 +269,12 @@ func main() {
 	var create = flag.String("create", "", "create the named vault")
 	var archive = flag.String("archive", "", "request retrieval of an archive")
 	var status = flag.String("status", "", "query status of a particular job")
-	var output = flag.String("output", "", "retrieve output of a completed job")
-	var fetch = flag.String("fetch", "", "save the retrieved archive to a file")
+	var output = flag.String("output", "", "retrieve the output of an inventory job")
+	var fetch = flag.String("fetch", "", "retrieve the requested archive to a file")
 	var upload = flag.String("upload", "", "upload the named file to a vault")
 	var desc = flag.String("desc", "", "description of archive being uploaded")
 	var vault = flag.String("vault", "", "vault name, required for some commands")
-	// TODO: rewrite prune.py (need to wait until May to avoid fees)
+	// TODO: rewrite prune.py (use an older vault to test)
 	flag.Parse()
 
 	if *help {
@@ -300,7 +308,7 @@ func main() {
 			fmt.Println("Missing required -vault argument")
 			os.Exit(2)
 		}
-		printJobOutput(*output, *vault)
+		printInventory(*output, *vault)
 	} else if *fetch != "" {
 		if *vault == "" {
 			fmt.Println("Missing required -vault argument")
