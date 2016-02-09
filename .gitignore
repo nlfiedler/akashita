@@ -1,8 +1,12 @@
-.eunit
-deps
-*.o
 *.beam
+*.o
 *.plt
-erl_crash.dump
-.vagrant
 *.pyc
+.eunit
+.rebar
+.vagrant
+akashita
+deps
+ebin
+erl_crash.dump
+logs

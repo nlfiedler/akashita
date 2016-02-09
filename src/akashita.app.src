@@ -1,0 +1,12 @@
+{application, akashita, [
+    {description, "Backup ZFS datasets to Amazon Glaicer."},
+    {vsn, "0.1.0"},
+    {registered, []},
+    {applications, [
+        kernel,
+        stdlib,
+        lager
+    ]},
+    {mod, {akashita_app, []}},
+    {env, []}
+]}.
