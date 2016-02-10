@@ -31,6 +31,26 @@ import (
 	"os"
 )
 
+// InventoryRetrievalEntry represents on entry from an inventory retrieval. It
+// is unmarshalled from the JSON response to a job. There is one field in this
+// struct for every entry in the JSON output.
+type InventoryRetrievalEntry struct {
+	ArchiveId          string
+	ArchiveDescription string
+	CreationDate       string
+	Size               int64
+	SHA256TreeHash     string
+}
+
+// InventoryRetrievalJob represents the result of an inventory retrieval job. It
+// is unmarshalled from the JSON response to a job. There is one field in this
+// struct for every entry in the JSON output.
+type InventoryRetrievalJob struct {
+	VaultARN      string
+	InventoryDate string
+	ArchiveList   []InventoryRetrievalEntry
+}
+
 // getAllVaults retrieves the list of all vaults.
 func getAllVaults(svc *glacier.Glacier) *glacier.ListVaultsOutput {
 	params := &glacier.ListVaultsInput{
@@ -90,6 +110,71 @@ func createVault(vault string) {
 		os.Exit(1)
 	}
 	fmt.Println(*resp.Location)
+}
+
+// deleteVault deletes the named vault. The vault must be empty, as by the
+// emptyVault() function. This requires requesting an inventory, emptying the
+// vault, then requesting another inventory, and finally deleting the vault
+// (after the second inventory job has completed).
+func deleteVault(jobId, vault string) {
+	svc := glacier.New(session.New())
+	params := &glacier.DescribeJobInput{
+		AccountId: aws.String("-"),
+		JobId:     &jobId,
+		VaultName: &vault,
+	}
+	job, err := svc.DescribeJob(params)
+	if err != nil {
+		fmt.Println(err.Error())
+		os.Exit(1)
+	}
+	if *job.Completed {
+		if *job.Action == glacier.ActionCodeInventoryRetrieval {
+			// make sure the inventory retrieval indicates that the vault
+			// contains no archives at all
+			job_input := &glacier.GetJobOutputInput{
+				AccountId: aws.String("-"),
+				JobId:     &jobId,
+				VaultName: &vault,
+			}
+			job_output, err := svc.GetJobOutput(job_input)
+			if err != nil {
+				fmt.Println(err.Error())
+				os.Exit(1)
+			}
+			// unmarshal the json to inventory retrieval objects
+			var output bytes.Buffer
+			io.Copy(&output, job_output.Body)
+			var job_result InventoryRetrievalJob
+			err = json.Unmarshal(output.Bytes(), &job_result)
+			if err != nil {
+				fmt.Println(err.Error())
+				os.Exit(1)
+			}
+			if len(job_result.ArchiveList) == 0 {
+				// we can delete the vault with some degree of certainty
+				params := &glacier.DeleteVaultInput{
+					AccountId: aws.String("-"),
+					VaultName: &vault,
+				}
+				_, err := svc.DeleteVault(params)
+				if err != nil {
+					fmt.Println(err.Error())
+					os.Exit(1)
+				}
+				fmt.Println(vault)
+			} else {
+				fmt.Println("vault is not empty")
+				os.Exit(2)
+			}
+		} else {
+			fmt.Println("not an inventory retrieval job")
+			os.Exit(2)
+		}
+	} else {
+		fmt.Println("job still in progress")
+		os.Exit(2)
+	}
 }
 
 // requestInventory requests the inventory retrieval for a vault and prints the
@@ -259,6 +344,66 @@ func uploadFile(filename, desc, vault string) {
 	fmt.Println(*resp.ArchiveId)
 }
 
+// emptyVault reads the inventory of the given job and marks all of the archives
+// as deleted. The vault can later be deleted after requesting another
+// inventory.
+func emptyVault(jobId, vault string) {
+	svc := glacier.New(session.New())
+	params := &glacier.DescribeJobInput{
+		AccountId: aws.String("-"),
+		JobId:     &jobId,
+		VaultName: &vault,
+	}
+	job, err := svc.DescribeJob(params)
+	if err != nil {
+		fmt.Println(err.Error())
+		os.Exit(1)
+	}
+	if *job.Completed {
+		if *job.Action == glacier.ActionCodeInventoryRetrieval {
+			job_input := &glacier.GetJobOutputInput{
+				AccountId: aws.String("-"),
+				JobId:     &jobId,
+				VaultName: &vault,
+			}
+			job_output, err := svc.GetJobOutput(job_input)
+			if err != nil {
+				fmt.Println(err.Error())
+				os.Exit(1)
+			}
+			// unmarshal the json to inventory retrieval objects
+			var output bytes.Buffer
+			io.Copy(&output, job_output.Body)
+			var job_result InventoryRetrievalJob
+			err = json.Unmarshal(output.Bytes(), &job_result)
+			if err != nil {
+				fmt.Println(err.Error())
+				os.Exit(1)
+			}
+			// request that each of the archives be deleted
+			for _, arc := range job_result.ArchiveList {
+				delete_input := &glacier.DeleteArchiveInput{
+					AccountId: aws.String("-"),
+					ArchiveId: aws.String(arc.ArchiveId),
+					VaultName: &vault,
+				}
+				_, err := svc.DeleteArchive(delete_input)
+				if err != nil {
+					fmt.Println(err.Error())
+					os.Exit(1)
+				}
+				fmt.Println(arc.ArchiveDescription)
+			}
+		} else {
+			fmt.Println("not an inventory retrieval job")
+			os.Exit(2)
+		}
+	} else {
+		fmt.Println("job still in progress")
+		os.Exit(2)
+	}
+}
+
 // main parses the command line arguments and delegates to the appropriate
 // function.
 func main() {
@@ -266,15 +411,16 @@ func main() {
 	var vaults = flag.Bool("vaults", false, "list all known vaults")
 	var jobs = flag.Bool("jobs", false, "list all known jobs")
 	var inventory = flag.Bool("inventory", false, "request inventory of a vault")
-	var create = flag.String("create", "", "create the named vault")
-	var archive = flag.String("archive", "", "request retrieval of an archive")
-	var status = flag.String("status", "", "query status of a particular job")
-	var output = flag.String("output", "", "retrieve the output of an inventory job")
-	var fetch = flag.String("fetch", "", "retrieve the requested archive to a file")
-	var upload = flag.String("upload", "", "upload the named file to a vault")
+	var create = flag.Bool("create", false, "create the named vault")
+	var archive = flag.String("archive", "", "archiveId: request retrieval of an archive")
+	var status = flag.String("status", "", "jobId: query status of a particular job")
+	var output = flag.String("output", "", "jobId: retrieve the output of an inventory job")
+	var fetch = flag.String("fetch", "", "jobId: retrieve the requested archive to a file")
+	var empty = flag.String("empty", "", "jobId: delete all archives in a vault")
+	var remove = flag.String("delete", "", "jobId: delete the named (empty) vault")
+	var upload = flag.String("upload", "", "file: upload the named file to a vault")
 	var desc = flag.String("desc", "", "description of archive being uploaded")
 	var vault = flag.String("vault", "", "vault name, required for some commands")
-	// TODO: rewrite prune.py (use an older vault to test)
 	flag.Parse()
 
 	if *help {
@@ -289,8 +435,12 @@ func main() {
 			os.Exit(2)
 		}
 		requestInventory(*vault)
-	} else if *create != "" {
-		createVault(*create)
+	} else if *create {
+		if *vault == "" {
+			fmt.Println("Missing required -vault argument")
+			os.Exit(2)
+		}
+		createVault(*vault)
 	} else if *archive != "" {
 		if *vault == "" {
 			fmt.Println("Missing required -vault argument")
@@ -321,6 +471,18 @@ func main() {
 			os.Exit(2)
 		}
 		uploadFile(*upload, *desc, *vault)
+	} else if *empty != "" {
+		if *vault == "" {
+			fmt.Println("Missing required -vault argument")
+			os.Exit(2)
+		}
+		emptyVault(*empty, *vault)
+	} else if *remove != "" {
+		if *vault == "" {
+			fmt.Println("Missing required -vault argument")
+			os.Exit(2)
+		}
+		deleteVault(*remove, *vault)
 	} else {
 		// When all else fails, print the help message.
 		flag.PrintDefaults()
