@@ -26,7 +26,7 @@
 
 -module(akashita).
 
--export([main/1, is_go_time/3]).
+-export([main/1, is_go_time/3, create_archives/4]).
 
 main(_Args) ->
     io:format("Starting backup process...~n"),
@@ -74,3 +74,68 @@ is_go_time(Windows, Hour, Minute)
         end
     end,
     lists:any(InWindow, WindowList).
+
+% Produce the tar archives (split into reasonably sized files) for the given
+% list of Paths (relative to the TarDir directory), with the split files having
+% the given Prefix. The split files will be created in the SplitDir directory.
+create_archives(Paths, Prefix, TarDir, SplitDir) ->
+    lager:info("generating tar archives...~n"),
+    TarCmd = string:join(tar_cmd(Paths), " "),
+    TarPort = erlang:open_port({spawn, TarCmd}, [exit_status, binary, {cd, TarDir}]),
+    SplitCmd = string:join(split_cmd(Prefix), " "),
+    SplitPort = erlang:open_port({spawn, SplitCmd}, [exit_status, binary, {cd, SplitDir}]),
+    % TODO: split does not appear to be splitting the file
+    % start with a ClosedCount of 1, otherwise split hangs indefinitely.
+    {ok, 0} = pipe_until_exit(TarPort, SplitPort, 1),
+    case erlang:port_info(TarPort) of
+        undefined -> ok;
+        _         -> true = erlang:port_close(TarPort)
+    end,
+    case erlang:port_info(SplitPort) of
+        undefined -> ok;
+        _         -> true = erlang:port_close(SplitPort)
+    end,
+    lager:info("tar archive creation complete~n"),
+    ok.
+
+% Generate the command to invoke tar for the given set of file paths.
+tar_cmd(Paths) ->
+    % TODO: support excludes with the --exclude option (supported by BSD tar)
+    % TODO: support compression with the -j option (supported by BSD tar)
+    ["tar", "-c"] ++ Paths.
+
+% Generate the command to invoke split, reading from standard input, and
+% producing files whose names begin with the given prefix.
+split_cmd(Prefix) ->
+    [
+        %
+        % These options should work for both GNU split and BSD split.
+        %
+        "split",
+        "-d",
+        % The split command fails if it runs out of suffix digits, so give it
+        % enough digits to handle our rather large files.
+        "-a", "5",
+        % TODO: read the split size from the configuration
+        "-b", "256K",
+        "-",
+        Prefix
+    ].
+
+% Receive data from SendPort and write to RecvPort. Waits for both ports to close.
+pipe_until_exit(SendPort, RecvPort, ClosedCount) ->
+    receive
+        {_Port, {exit_status, Status}} ->
+            if ClosedCount == 1 -> {ok, Status};
+                true -> pipe_until_exit(SendPort, RecvPort, ClosedCount + 1)
+            end;
+        {Port, {data, Data}} ->
+            if Port =:= SendPort ->
+                    RecvPort ! {self(), {command, Data}},
+                    pipe_until_exit(Port, RecvPort, ClosedCount);
+                true ->
+                    lager:notice("received data from receiving port~n")
+            end;
+        {'EXIT', Port, Reason} ->
+            lager:info("port ~p exited, ~p~n", [Port, Reason])
+    end.

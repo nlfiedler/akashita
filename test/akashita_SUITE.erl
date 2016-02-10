@@ -33,7 +33,8 @@ end_per_suite(_Config) ->
 
 all() ->
     [
-        is_go_time_test
+        is_go_time_test,
+        create_archives_test
     ].
 
 %% Test the is_go_time/3 function.
@@ -102,4 +103,14 @@ is_go_time_test(_Config) ->
     ?assertError(badarg, akashita:is_go_time("23:71-13:00", 0, 0)),
     ?assertError(badarg, akashita:is_go_time("23:11-72:00", 0, 0)),
     ?assertError(badarg, akashita:is_go_time("23:11-13:99", 0, 0)),
+    ok.
+
+% Test the create_archives/4 function.
+create_archives_test(_Config) ->
+    % create a temporary directory for the split files
+    TempDir = string:strip(os:cmd("mktemp -d"), right, $\n),
+    Cwd = os:getenv("PWD"),
+    ?assertEqual(ok, akashita:create_archives(["."], "splits", Cwd, TempDir)),
+    % TODO: verify that there are at least N split files in TempDir
+    % TODO: remove the split files and the temp directory
     ok.
