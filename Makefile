@@ -8,7 +8,7 @@ all: compile
 prepare:
 	rebar get-deps
 	cd deps/lager && $(MAKE)
-	rebar -r prepare-deps
+	rebar prepare-deps
 
 aws:
 	go get -u github.com/aws/aws-sdk-go/...
