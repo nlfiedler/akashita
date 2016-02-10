@@ -45,15 +45,29 @@ main(_Args) ->
 % TODO: code the zfs dataset destroy function
 
 % Determine if given time falls within upload window(s).
-is_go_time(Windows, Hour, Minute) ->
+is_go_time(Windows, Hour, Minute)
+        when Hour >= 0 andalso Hour < 24
+        andalso Minute >= 0 andalso Minute < 60 ->
     TheTime = {Hour, Minute},
     WindowList = re:split(Windows, ",", [{return, list}]),
+    ConvertHour = fun(Str) ->
+        case list_to_integer(Str) of
+            X when X >= 0 andalso X < 24 -> X;
+            _ -> erlang:error(badarg)
+        end
+    end,
+    ConvertMinute = fun(Str) ->
+        case list_to_integer(Str) of
+            X when X >= 0 andalso X < 60 -> X;
+            _ -> erlang:error(badarg)
+        end
+    end,
     InWindow = fun(Elem) ->
         [StartStr, EndStr] = re:split(Elem, "-", [{return, list}]),
         [StartHour, StartMin] = re:split(StartStr, ":", [{return, list}]),
-        Start = {list_to_integer(StartHour), list_to_integer(StartMin)},
+        Start = {ConvertHour(StartHour), ConvertMinute(StartMin)},
         [EndHour, EndMin] = re:split(EndStr, ":", [{return, list}]),
-        End = {list_to_integer(EndHour), list_to_integer(EndMin)},
+        End = {ConvertHour(EndHour), ConvertMinute(EndMin)},
         case End < Start of
             true  -> (Start =< TheTime) or (TheTime =< End);
             false -> (Start =< TheTime) and (TheTime =< End)

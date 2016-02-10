@@ -84,4 +84,22 @@ is_go_time_test(_Config) ->
     ?assertNot(akashita:is_go_time("05:00-13:00,17:00-00:00", 4, 0)),
     ?assertNot(akashita:is_go_time("05:00-13:00,17:00-00:00", 13, 1)),
     ?assertNot(akashita:is_go_time("05:00-13:00,17:00-00:00", 16, 59)),
+
+    % malformed time strings
+    ?assertError({badmatch, [[]]}, akashita:is_go_time("", 0, 0)),
+    ?assertError({badmatch, ["05001300"]}, akashita:is_go_time("05001300", 0, 0)),
+    ?assertError({badmatch, ["0500"]}, akashita:is_go_time("0500-1300", 0, 0)),
+    ?assertError(badarg, akashita:is_go_time("aa:bb-cc:dd", 0, 0)),
+
+    % invalid hours and minutes
+    ?assertError(function_clause, akashita:is_go_time("05:00-13:00,17:00-00:00", 25, 59)),
+    ?assertError(function_clause, akashita:is_go_time("05:00-13:00,17:00-00:00", -1, 59)),
+    ?assertError(function_clause, akashita:is_go_time("05:00-13:00,17:00-00:00", 21, 79)),
+    ?assertError(function_clause, akashita:is_go_time("05:00-13:00,17:00-00:00", 21, -30)),
+
+    % invalid hours and minutes in time string
+    ?assertError(badarg, akashita:is_go_time("25:00-13:00", 0, 0)),
+    ?assertError(badarg, akashita:is_go_time("23:71-13:00", 0, 0)),
+    ?assertError(badarg, akashita:is_go_time("23:11-72:00", 0, 0)),
+    ?assertError(badarg, akashita:is_go_time("23:11-13:99", 0, 0)),
     ok.
