@@ -22,6 +22,9 @@
 -compile(export_all).
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
+-include_lib("kernel/include/file.hrl").
+
+-define(SPLIT_SIZE, 262144).
 
 init_per_suite(Config) ->
     % ensure lager is configured for testing
@@ -105,12 +108,32 @@ is_go_time_test(_Config) ->
     ?assertError(badarg, akashita:is_go_time("23:11-13:99", 0, 0)),
     ok.
 
-% Test the create_archives/4 function.
+% Test the create_archives/5 function.
 create_archives_test(_Config) ->
     % create a temporary directory for the split files
     TempDir = string:strip(os:cmd("mktemp -d"), right, $\n),
+    % sanity check the result of mktemp so we don't clobber random files
+    ?assertEqual($/, hd(TempDir)),
+    ct:log(default, 50, "splits dir: ~p", [TempDir]),
     Cwd = os:getenv("PWD"),
-    ?assertEqual(ok, akashita:create_archives(["."], "splits", Cwd, TempDir)),
-    % TODO: verify that there are at least N split files in TempDir
-    % TODO: remove the split files and the temp directory
+    Options = [{split_size, integer_to_list(?SPLIT_SIZE)}],
+    ?assertEqual(ok, akashita:create_archives(["."], "splits", Cwd, TempDir, Options)),
+    % verify that the split files are all ?SPLIT_SIZE bytes in size, except the last one
+    {ok, SplitFiles} = file:list_dir(TempDir),
+    {_LastSplit, SameSizeSplits} = lists:split(1, lists:reverse(lists:sort(SplitFiles))),
+    ?assert(length(SameSizeSplits) > 10),
+    % we expect the split names to be like "splits00001"
+    {ok, MP} = re:compile("splits\\d{5}"),
+    CorrectFile = fun(Filename) ->
+        case re:run(Filename, MP) of
+            {match, _Captured} ->
+                Path = filename:join(TempDir, Filename),
+                {ok, #file_info{size = Size}} = file:read_file_info(Path),
+                Size == ?SPLIT_SIZE;
+            nomatch -> false
+        end
+    end,
+    ?assert(lists:all(CorrectFile, SameSizeSplits)),
+    % remove the split files and the temp directory
+    os:cmd("rm -rf " ++ TempDir),
     ok.

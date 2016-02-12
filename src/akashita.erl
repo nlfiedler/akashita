@@ -26,7 +26,7 @@
 
 -module(akashita).
 
--export([main/1, is_go_time/3, create_archives/4]).
+-export([main/1, is_go_time/3, create_archives/5]).
 
 main(_Args) ->
     io:format("Starting backup process...~n"),
@@ -39,7 +39,6 @@ main(_Args) ->
 % TODO: read the akashita.config configuration file (in Erlang expressions format)
 % TODO: code and test the vault/archive completion cache
 % TODO: code and test the "tag" computation and caching
-% TODO: code and test the creation of tar|split files
 % TODO: code the zfs snapshot function
 % TODO: code the zfs clone function
 % TODO: code the zfs dataset destroy function
@@ -76,17 +75,27 @@ is_go_time(Windows, Hour, Minute)
     lists:any(InWindow, WindowList).
 
 % Produce the tar archives (split into reasonably sized files) for the given
-% list of Paths (relative to the TarDir directory), with the split files having
+% list of Paths (relative to the SourceDir directory), with the split files having
 % the given Prefix. The split files will be created in the SplitDir directory.
-create_archives(Paths, Prefix, TarDir, SplitDir) ->
+%
+% The Options argument is a proplist consisting of the following properties:
+%
+%   split_size: a string passed directly to the split command; default "64M"
+%   compress: a bool that indicates whether to compress (bzip2) the tar files; default false
+%   excludes: a list of patterns (filename()) to be excluded from the tar files; default []
+%
+create_archives(Paths, Prefix, SourceDir, SplitDir, Options) ->
     lager:info("generating tar archives...~n"),
-    TarCmd = string:join(tar_cmd(Paths), " "),
-    TarPort = erlang:open_port({spawn, TarCmd}, [exit_status, binary, {cd, TarDir}]),
-    SplitCmd = string:join(split_cmd(Prefix), " "),
+    SplitSize = proplists:get_value(split_size, Options, "64M"),
+    Compress = proplists:get_value(compress, Options, false),
+    Exclusions = proplists:get_value(excludes, Options, []),
+    TarCmd = string:join(tar_cmd(Paths, Compress, Exclusions), " "),
+    TarPort = erlang:open_port({spawn, TarCmd}, [exit_status, binary, {cd, SourceDir}]),
+    SplitCmd = string:join(split_cmd(Prefix, SplitSize), " "),
     SplitPort = erlang:open_port({spawn, SplitCmd}, [exit_status, binary, {cd, SplitDir}]),
-    % TODO: split does not appear to be splitting the file
-    % start with a ClosedCount of 1, otherwise split hangs indefinitely.
+    % start with a ClosedCount of 1, otherwise split hangs indefinitely
     {ok, 0} = pipe_until_exit(TarPort, SplitPort, 1),
+    % close the ports so the programs know to terminate (especially split)
     case erlang:port_info(TarPort) of
         undefined -> ok;
         _         -> true = erlang:port_close(TarPort)
@@ -99,25 +108,32 @@ create_archives(Paths, Prefix, TarDir, SplitDir) ->
     ok.
 
 % Generate the command to invoke tar for the given set of file paths.
-tar_cmd(Paths) ->
-    % TODO: support excludes with the --exclude option (supported by BSD tar)
-    % TODO: support compression with the -j option (supported by BSD tar)
-    ["tar", "-c"] ++ Paths.
+tar_cmd(Paths, Compress, Exclusions) ->
+    Copt = case Compress of
+        true -> ["-j"];
+        false -> []
+    end,
+    Eopt = case Exclusions of
+        [] -> [];
+        _ -> Exclusions
+    end,
+    ["tar", "-c"] ++ Copt ++ Eopt ++ Paths.
 
 % Generate the command to invoke split, reading from standard input, and
-% producing files whose names begin with the given prefix.
-split_cmd(Prefix) ->
+% producing files whose names begin with the given prefix. The SplitSize
+% is passed directly to the split command (e.g. "256K" is 262144 bytes).
+split_cmd(Prefix, SplitSize) ->
     [
         %
-        % These options should work for both GNU split and BSD split.
+        % These options should work for both GNU split and BSD split for the
+        % sake of testing on various systems.
         %
         "split",
         "-d",
         % The split command fails if it runs out of suffix digits, so give it
         % enough digits to handle our rather large files.
         "-a", "5",
-        % TODO: read the split size from the configuration
-        "-b", "256K",
+        "-b", SplitSize,
         "-",
         Prefix
     ].
