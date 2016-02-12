@@ -21,5 +21,5 @@ compile:
 clean:
 	rebar clean
 
-test:
+test: compile
 	rebar ct
