@@ -1,0 +1,21 @@
+#
+# Vagrantfile for Ubuntu Linux 14.04 test environment.
+#
+Vagrant.configure(2) do |config|
+
+  config.vm.box = 'ubuntu/trusty64'
+
+  config.vm.provider 'virtualbox' do |vb|
+    vb.memory = 2048
+  end
+
+  config.vm.synced_folder '../..', '/vagrant_data'
+
+  # bring the system up to date
+  config.vm.provision 'shell', inline: <<-SHELL
+    sudo apt-get -y autoremove
+    sudo apt-get -y update
+    sudo apt-get -y upgrade
+  SHELL
+
+end

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 # -------------------------------------------------------------------
 #
-# Copyright (c) 2014 Nathan Fiedler
+# Copyright (c) 2016 Nathan Fiedler
 #
 # This file is provided to you under the Apache License,
 # Version 2.0 (the "License"); you may not use this file
@@ -18,25 +18,24 @@
 # under the License.
 #
 # -------------------------------------------------------------------
-"""Fabric file for installing requirements on Ubuntu Linux."""
+"""Fabric file for installing requirements on FreeBSD."""
 
-from fabric.api import cd, put, sudo, task
+import os
+
+from fabric.api import env, sudo, task
+
+env.shell = "/bin/sh -c"
+env.hosts = ["default"]
+env.use_ssh_config = True
+if os.path.exists("user_ssh_config"):
+    env.ssh_config_path = "user_ssh_config"
+else:
+    env.ssh_config_path = "ssh_config"
 
 
 @task
 def all():
     """Install everything needed for akashita."""
-    install_boto()
-
-
-@task
-def install_boto():
-    """Install Amazon Web Service API (boto)."""
-    # Use pip to get the most recent version of boto (Ubuntu tends to lag
-    # behind quite a bit).
-    sudo('apt-get install -q -y python-pip')
-    sudo('pip2 -q install boto')
-    # Patch Python 2.7 so Unicode characters do not cause a crash in httplib.
-    put('httplib.py.diff')
-    with cd('/usr/lib/python2.7'):
-        sudo('patch -b -p0 -u < ~/httplib.py.diff')
+    sudo("pkg install -q -y erlang")
+    sudo("pkg install -q -y go")
+    sudo("pkg install -q -y rebar")
