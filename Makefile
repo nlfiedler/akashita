@@ -1,11 +1,9 @@
 #
 # Makefile provided for convenience purposes.
 #
-.PHONY: all prepare aws clean compile test
+.PHONY: deps aws precompile postclean test release
 
-all: compile
-
-prepare:
+deps:
 	rebar get-deps
 	cd deps/lager && $(MAKE)
 	rebar prepare-deps
@@ -13,13 +11,19 @@ prepare:
 aws:
 	go get -u github.com/aws/aws-sdk-go/...
 
-compile:
-	@(test -d deps || $(MAKE) prepare)
+precompile:
 	@(test -f $(GOPATH)/bin/api-info || $(MAKE) aws)
-	rebar compile escriptize
+	@(test -d deps || $(MAKE) deps)
+	go install github.com/nlfiedler/akashita/klutlan
 
-clean:
-	rebar clean
+postclean:
+	go clean github.com/nlfiedler/akashita/klutlan
 
-test: compile
+test:
+	rebar compile
 	rebar ct
+
+release: precompile
+	rebar clean
+	rebar compile
+	rebar escriptize
