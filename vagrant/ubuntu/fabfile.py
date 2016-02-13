@@ -86,6 +86,8 @@ def install_golang():
     sudo('tar -C /usr/local -xzf go1.5.3.linux-amd64.tar.gz')
     run('rm -f go1.5.3.linux-amd64.tar.gz')
     append('.profile', 'export PATH=$PATH:/usr/local/go/bin')
+    run('mkdir gocode')
+    append('.profile', 'export GOPATH=~/gocode')
 
 
 @task
