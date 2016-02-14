@@ -17,11 +17,11 @@
 
 ## Building and Testing
 
-To download the dependencies and build the application, use `make` as follows:
+To download the dependencies and build the application, use `rebar` as follows:
 
 ```
-$ make
-$ make test
+$ rebar compile
+$ rebar ct
 ```
 
 ## Usage
