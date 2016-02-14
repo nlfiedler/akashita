@@ -145,7 +145,7 @@ ensure_snapshot_exists_test(Config) ->
         false ->
             cg:log("missing 'zfs' in PATH, skipping test..."),
             ok;
-        ZfsBin ->
+        _ZfsBin ->
             PrivDir = ?config(priv_dir, Config),
             FSFile = filename:join(PrivDir, "tank_file"),
             os:cmd("mkfile 100m " ++ FSFile),
