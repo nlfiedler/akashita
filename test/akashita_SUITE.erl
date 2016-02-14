@@ -37,7 +37,8 @@ end_per_suite(_Config) ->
 all() ->
     [
         is_go_time_test,
-        create_archives_test
+        create_archives_test,
+        ensure_snapshot_exists_test
     ].
 
 %% Test the is_go_time/3 function.
@@ -114,7 +115,7 @@ create_archives_test(_Config) ->
     TempDir = string:strip(os:cmd("mktemp -d"), right, $\n),
     % sanity check the result of mktemp so we don't clobber random files
     ?assertEqual($/, hd(TempDir)),
-    ct:log(default, 50, "splits dir: ~p", [TempDir]),
+    ct:log(default, 50, "splits dir: ~s", [TempDir]),
     Cwd = os:getenv("PWD"),
     Options = [{split_size, integer_to_list(?SPLIT_SIZE)}],
     ?assertEqual(ok, akashita:create_archives(["."], "splits", Cwd, TempDir, Options)),
@@ -137,3 +138,27 @@ create_archives_test(_Config) ->
     % remove the split files and the temp directory
     os:cmd("rm -rf " ++ TempDir),
     ok.
+
+% Test the ensure_snapshot_exists/2 function.
+ensure_snapshot_exists_test(Config) ->
+    case os:find_executable("zfs") of
+        false ->
+            cg:log("missing 'zfs' in PATH, skipping test..."),
+            ok;
+        ZfsBin ->
+            PrivDir = ?config(priv_dir, Config),
+            FSFile = filename:join(PrivDir, "tank_file"),
+            os:cmd("mkfile 100m " ++ FSFile),
+            % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind
+            os:cmd("sudo zpool create panzer " ++ FSFile),
+            % Cwd = os:getenv("PWD"),
+            % os:cmd("cp -r " ++ Cwd ++ " /panzer"),
+            {ok, Snapshot} = akashita:ensure_snapshot_exists("10-14-2005", "panzer"),
+            Snapshots = os:cmd("sudo zfs list -r -t snapshot"),
+            ?assert(string:str(Snapshots, "panzer@glacier:10-14-2005") > 0),
+            % do it again to make sure it does not crash, and returns the same name
+            {ok, Snapshot} = akashita:ensure_snapshot_exists("10-14-2005", "panzer"),
+            os:cmd("sudo zpool destroy panzer"),
+            ok = file:delete(FSFile),
+            ok
+    end.

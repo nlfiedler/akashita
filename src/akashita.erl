@@ -26,7 +26,7 @@
 
 -module(akashita).
 
--export([main/1, is_go_time/3, create_archives/5]).
+-export([main/1, is_go_time/3, ensure_snapshot_exists/2, create_archives/5]).
 
 main(_Args) ->
     io:format("Starting backup process...~n"),
@@ -37,9 +37,11 @@ main(_Args) ->
     end.
 
 % TODO: read the akashita.config configuration file (in Erlang expressions format)
+% TOOD: use a new config format
+%       * vaults have one set of paths
+%       * so movies are one vault, pictures, another, etc
 % TODO: code and test the vault/archive completion cache
 % TODO: code and test the "tag" computation and caching
-% TODO: code the zfs snapshot function
 % TODO: code the zfs clone function
 % TODO: code the zfs dataset destroy function
 
@@ -74,6 +76,34 @@ is_go_time(Windows, Hour, Minute)
     end,
     lists:any(InWindow, WindowList).
 
+% Create the ZFS snapshot, if it is missing, where Name is the snapshot
+% name, and Dataset is the name of the zfs dataset for which a snapshot
+% will be created. Returns {ok, SnapshotName} on success.
+ensure_snapshot_exists(Name, Dataset) ->
+    Snapshot = io_lib:format("~s@glacier:~s", [Dataset, Name]),
+    case os:find_executable("zfs") of
+        false ->
+            lager:info("missing 'zfs' in PATH"),
+            error(missing_zfs);
+        ZfsBin ->
+            ListPort = erlang:open_port({spawn_executable, ZfsBin},
+                [exit_status, {args, ["list", "-H", Snapshot]}]),
+            case wait_for_port(ListPort) of
+                {ok, 0} ->
+                    % zfs snapshot already exists
+                    ok;
+                {ok, _C} ->
+                    % create the zfs snapshot
+                    lager:info("creating zfs snapshot ~s", [Snapshot]),
+                    SnapArgs = ["snapshot", "-o", "com.sun:auto-snapshot=false", Snapshot],
+                    SnapPort = erlang:open_port({spawn_executable, ZfsBin},
+                        [exit_status, {args, SnapArgs}]),
+                    {ok, 0} = wait_for_port(SnapPort),
+                    lager:info("zfs snapshot ~s created", [Snapshot])
+            end,
+            {ok, Snapshot}
+    end.
+
 % Produce the tar archives (split into reasonably sized files) for the given
 % list of Paths (relative to the SourceDir directory), with the split files having
 % the given Prefix. The split files will be created in the SplitDir directory.
@@ -96,14 +126,8 @@ create_archives(Paths, Prefix, SourceDir, SplitDir, Options) ->
     % start with a ClosedCount of 1, otherwise split hangs indefinitely
     {ok, 0} = pipe_until_exit(TarPort, SplitPort, 1),
     % close the ports so the programs know to terminate (especially split)
-    case erlang:port_info(TarPort) of
-        undefined -> ok;
-        _         -> true = erlang:port_close(TarPort)
-    end,
-    case erlang:port_info(SplitPort) of
-        undefined -> ok;
-        _         -> true = erlang:port_close(SplitPort)
-    end,
+    ensure_port_closed(TarPort),
+    ensure_port_closed(SplitPort),
     lager:info("tar archive creation complete~n"),
     ok.
 
@@ -117,7 +141,9 @@ tar_cmd(Paths, Compress, Exclusions) ->
         [] -> [];
         _ -> Exclusions
     end,
-    ["tar", "-c"] ++ Copt ++ Eopt ++ Paths.
+    % Need the "-f -" for bsdtar, otherwise it attempts to use the default
+    % tape drive device (/dev/sa0).
+    ["tar", "-f", "-", "-c"] ++ Copt ++ Eopt ++ Paths.
 
 % Generate the command to invoke split, reading from standard input, and
 % producing files whose names begin with the given prefix. The SplitSize
@@ -145,13 +171,36 @@ pipe_until_exit(SendPort, RecvPort, ClosedCount) ->
             if ClosedCount == 1 -> {ok, Status};
                 true -> pipe_until_exit(SendPort, RecvPort, ClosedCount + 1)
             end;
-        {Port, {data, Data}} ->
-            if Port =:= SendPort ->
-                    RecvPort ! {self(), {command, Data}},
-                    pipe_until_exit(Port, RecvPort, ClosedCount);
-                true ->
-                    lager:notice("received data from receiving port~n")
-            end;
+        {SendPort, {data, Data}} ->
+            RecvPort ! {self(), {command, Data}},
+            pipe_until_exit(SendPort, RecvPort, ClosedCount);
+        {RecvPort, {data, _Data}} ->
+            lager:notice("received data from receiving port~n"),
+            pipe_until_exit(SendPort, RecvPort, ClosedCount);
         {'EXIT', Port, Reason} ->
-            lager:info("port ~p exited, ~p~n", [Port, Reason])
+            lager:info("port ~w exited, ~w~n", [Port, Reason])
+    end.
+
+% Wait for the given Port to complete and return the exit code in the form
+% of {ok, Status}. Any output received is written to the log. If the port
+% experiences an error, returns {error, Reason}.
+wait_for_port(Port) ->
+    receive
+        {Port, {exit_status, Status}} ->
+            ensure_port_closed(Port),
+            {ok, Status};
+        {Port, {data, Data}} ->
+            lager:notice("received output from port: ~w", [Data]),
+            wait_for_port(Port);
+        {'EXIT', Port, Reason} ->
+            lager:info("port ~w exited, ~w~n", [Port, Reason]),
+            {error, Reason}
+    end.
+
+% Ensure that the given Port has been properly closed. Does nothing if the
+% port is not open.
+ensure_port_closed(Port) ->
+    case erlang:port_info(Port) of
+        undefined -> ok;
+        _         -> erlang:port_close(Port)
     end.
