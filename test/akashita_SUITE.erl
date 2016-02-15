@@ -110,7 +110,7 @@ is_go_time_test(_Config) ->
     ok.
 
 % Test the ensure_archives/3 function.
-ensure_archives_test(Config) ->
+ensure_archives_test(_Config) ->
     % create a temporary directory for the split files
     TmpDir = string:strip(os:cmd("mktemp -d"), right, $\n),
     % sanity check the result of mktemp so we don't clobber random files
