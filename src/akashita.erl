@@ -26,7 +26,8 @@
 
 -module(akashita).
 
--export([main/1, is_go_time/3, ensure_snapshot_exists/2, create_archives/5]).
+-export([main/1, is_go_time/3]).
+-export([ensure_snapshot_exists/2, ensure_archives/3]).
 
 main(_Args) ->
     io:format("Starting backup process...~n"),
@@ -36,21 +37,19 @@ main(_Args) ->
         _ -> ok
     end.
 
-% TODO: read the akashita.config configuration file (in Erlang expressions format)
-% TOOD: use a new config format
-%       * vaults have one set of paths
-%       * so movies are one vault, pictures, another, etc
-% TODO: code and test the vault/archive completion cache
-% TODO: code and test the "tag" computation and caching
 % TODO: code the zfs clone function
 % TODO: code the zfs dataset destroy function
+% TODO: read the akashita configuration from sys.config (or similar)
+% TODO: code and test the vault completion cache
+% TODO: code and test the "tag" computation and caching
 
-% Determine if given time falls within upload window(s).
+% Determine if given time falls within upload window(s). Windows is a list
+% of strings in HH:MM-HH:MM format. The hours are 24-hour. The times can
+% span midnight, if needed.
 is_go_time(Windows, Hour, Minute)
         when Hour >= 0 andalso Hour < 24
         andalso Minute >= 0 andalso Minute < 60 ->
     TheTime = {Hour, Minute},
-    WindowList = re:split(Windows, ",", [{return, list}]),
     ConvertHour = fun(Str) ->
         case list_to_integer(Str) of
             X when X >= 0 andalso X < 24 -> X;
@@ -74,7 +73,7 @@ is_go_time(Windows, Hour, Minute)
             false -> (Start =< TheTime) and (TheTime =< End)
         end
     end,
-    lists:any(InWindow, WindowList).
+    lists:any(InWindow, Windows).
 
 % Create the ZFS snapshot, if it is missing, where Name is the snapshot
 % name, and Dataset is the name of the zfs dataset for which a snapshot
@@ -104,24 +103,52 @@ ensure_snapshot_exists(Name, Dataset) ->
             {ok, Snapshot}
     end.
 
-% Produce the tar archives (split into reasonably sized files) for the given
-% list of Paths (relative to the SourceDir directory), with the split files having
-% the given Prefix. The split files will be created in the SplitDir directory.
-%
-% The Options argument is a proplist consisting of the following properties:
-%
-%   split_size: a string passed directly to the split command; default "64M"
-%   compress: a bool that indicates whether to compress (bzip2) the tar files; default false
-%   excludes: a list of patterns (filename()) to be excluded from the tar files; default []
-%
-create_archives(Paths, Prefix, SourceDir, SplitDir, Options) ->
+% Ensure the archives are created for the named Vault, with the Tag as the
+% suffix of the working directory where the archives will be created. The
+% Config is a proplist taken from the application configuration.
+ensure_archives(Vault, Tag, Config) ->
+    WorkDir = proplists:get_value(tmpdir, Config),
+    ArchiveDir = filename:join(WorkDir, io_lib:format("~s-~s", [Vault, Tag])),
+    CreateArchives = fun() ->
+        VaultList = proplists:get_value(vaults, Config),
+        VaultConf = proplists:get_value(Vault, VaultList),
+        SplitSize = proplists:get_value(split_size, Config, "64M"),
+        create_archives(Vault, ArchiveDir, SplitSize, VaultConf)
+    end,
+    EnsureArchives = fun() ->
+        case file:list_dir(ArchiveDir) of
+            {error, enoent} ->
+                ok = filelib:ensure_dir(ArchiveDir),
+                ok = file:make_dir(ArchiveDir),
+                CreateArchives();
+            {ok, []} -> CreateArchives();
+            {ok, _Filenames} -> ok  % files exist, nothing to do
+        end
+    end,
+    % ensure the target directory exists, and if it is empty, create the archives
+    try EnsureArchives() of
+        ok -> ok
+    catch
+        error:Error ->
+            lager:error("error creating archives: ~w", [Error]),
+            os:cmd("rm -rf " ++ ArchiveDir),
+            {error, Error}
+    end.
+
+% Produce the tar archives (split into reasonably sized files) for the list
+% of 'paths' defined in the Options proplist (relative to the 'dataset'
+% directory, also defined in Options), with the split files having the
+% given Vault name as a prefix. The split files will be created in the
+% SplitDir directory.
+create_archives(Vault, SplitDir, SplitSize, Options) ->
     lager:info("generating tar archives...~n"),
-    SplitSize = proplists:get_value(split_size, Options, "64M"),
-    Compress = proplists:get_value(compress, Options, false),
+    Paths = proplists:get_value(paths, Options),
+    SourceDir = "/" ++ proplists:get_value(dataset, Options),
+    Compress = proplists:get_bool(compress, Options),
     Exclusions = proplists:get_value(excludes, Options, []),
     TarCmd = string:join(tar_cmd(Paths, Compress, Exclusions), " "),
     TarPort = erlang:open_port({spawn, TarCmd}, [exit_status, binary, {cd, SourceDir}]),
-    SplitCmd = string:join(split_cmd(Prefix, SplitSize), " "),
+    SplitCmd = string:join(split_cmd(Vault, SplitSize), " "),
     SplitPort = erlang:open_port({spawn, SplitCmd}, [exit_status, binary, {cd, SplitDir}]),
     % start with a ClosedCount of 1, otherwise split hangs indefinitely
     {ok, 0} = pipe_until_exit(TarPort, SplitPort, 1),

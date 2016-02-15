@@ -85,47 +85,17 @@ process_uploads(State) ->
 
 process_one_archive() ->
     % TODO: ensure the vault has been created
-    WorkDir = "TODO",
-    Prefix = "TODO",
-    Tag = "TODO",
-    Paths = ["TODO"],
-    SourceDir = "TODO",
-    ensure_archives(WorkDir, Prefix, Tag, Paths, SourceDir),
+    % WorkDir = "TODO",
+    % Prefix = "TODO",
+    % Tag = "TODO",
+    % Paths = ["TODO"],
+    % SourceDir = "TODO",
+    % akashita:ensure_archives(WorkDir, Prefix, Tag, Paths, SourceDir),
     % TODO: check the records for which vaults have been completed
     % TODO: upload a single archive
     % TODO: record each vault after successful completion
     % TODO: when vault is finished, destroy the zfs clone and snapshot
     ok.
-
-% Ensure the archives have been created in the given WorkDir, in which the
-% filenames have the given Prefix and Tag as part of the name, and consist
-% of the files and directories named in the Paths list, themselves found
-% in the SourceDir directory.
-% TODO: move this to akashita module so it can be easily tested
-ensure_archives(WorkDir, Prefix, Tag, Paths, SourceDir) ->
-    ArchiveDir = filename:join(WorkDir, io_lib:format("~s-~s", [Prefix, Tag])),
-    CreateArchives = fun() ->
-        % TODO: load the options from the configuration
-        Options = [],
-        akashita:create_archives(Paths, Prefix, SourceDir, ArchiveDir, Options)
-    end,
-    EnsureArchives = fun() ->
-        case file:list_dir(ArchiveDir) of
-            {error, enoent} ->
-                filelib:ensure_dir(ArchiveDir),
-                CreateArchives();
-            {ok, []} -> CreateArchives();
-            {ok, [_Filenames]} -> ok  % files exist, nothing to do
-        end
-    end,
-    % ensure the target directory exists, and if it is empty, create the archives
-    try EnsureArchives() of
-        ok -> ok
-    catch
-        error:Error ->
-            lager:error("error creating archives: ~w", [Error]),
-            os:cmd("rm -rf " ++ ArchiveDir)
-    end.
 
 % Start a timer to cast a 'process' message to us in 10 minutes.
 fire_later() ->
