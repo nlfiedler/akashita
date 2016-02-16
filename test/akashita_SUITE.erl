@@ -46,7 +46,8 @@ all() ->
         ensure_snapshot_exists_test,
         ensure_clone_exists_test,
         destroy_dataset_test,
-        retrieve_tag_test
+        retrieve_tag_test,
+        vault_completed_test
     ].
 
 %% Test the is_go_time/3 function.
@@ -240,4 +241,25 @@ retrieve_tag_test(_Config) ->
     Tag1 = akashita_app:retrieve_tag(),
     Tag2 = akashita_app:retrieve_tag(),
     ?assertEqual(Tag1, Tag2),
+    ok.
+
+% Test the functions related to remembering which vaults have been
+% completed. This includes negative tests, positive tests, and clearing the
+% cache.
+vault_completed_test(_Config) ->
+    ?assertNot(akashita_app:is_vault_completed("foo")),
+    ok = akashita_app:remember_completed_vault("foo"),
+    ?assert(akashita_app:is_vault_completed("foo")),
+    ok = akashita_app:remember_completed_vault("bar"),
+    ok = akashita_app:remember_completed_vault("baz"),
+    ok = akashita_app:remember_completed_vault("quux"),
+    ?assert(akashita_app:is_vault_completed("foo")),
+    ?assert(akashita_app:is_vault_completed("bar")),
+    ?assert(akashita_app:is_vault_completed("baz")),
+    ?assert(akashita_app:is_vault_completed("quux")),
+    ok = akashita_app:delete_cache(),
+    ?assertNot(akashita_app:is_vault_completed("foo")),
+    ?assertNot(akashita_app:is_vault_completed("bar")),
+    ?assertNot(akashita_app:is_vault_completed("baz")),
+    ?assertNot(akashita_app:is_vault_completed("quux")),
     ok.
