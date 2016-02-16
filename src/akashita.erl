@@ -41,7 +41,6 @@ main(_Args) ->
 
 % TODO: read the akashita configuration from sys.config (or similar)
 % TODO: code and test the vault completion cache
-% TODO: code and test the "tag" computation and caching
 
 % Determine if given time falls within upload window(s). Windows is a list
 % of strings in HH:MM-HH:MM format. The hours are 24-hour. The times can

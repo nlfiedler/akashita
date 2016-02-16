@@ -20,10 +20,88 @@
 %% -------------------------------------------------------------------
 -module(akashita_app).
 -behaviour(application).
--export([start/2, stop/1]).
+-export([start/2, stop/1, ensure_schema/1]).
+-export([retrieve_tag/0]).
+
+% The tag table only has one entry, the previous computed tag.
+% The key is 'the_tag', an atom.
+-record(akashita_tag, {key   :: atom(),
+                       value :: string()}).
+-define(THE_TAG, the_tag).
 
 start(_Type, _Args) ->
+    NodeList = [node()],
+    ensure_schema(NodeList),
+    ensure_mnesia(NodeList),
+    ok = mnesia:wait_for_tables([akashita_tag], 5000),
     akashita_sup:start_link().
 
 stop(_) ->
     ok.
+
+% Ensure the schema and our tables are installed in mnesia.
+ensure_schema(Nodes) ->
+    % create the schema if it does not exist
+    case mnesia:system_info(schema_version) of
+        {0, 0} ->
+            ok = mnesia:create_schema(Nodes);
+        {_, _} ->
+            ok
+    end,
+    EnsureTables = fun() ->
+        case mnesia:table_info(schema, storage_type) of
+            ram_copies ->
+                ChangeTable = fun(Node) ->
+                    mnesia:change_table_copy_type(schema, Node, disc_copies)
+                end,
+                [{atomic, ok} = ChangeTable(Node) || Node <- Nodes];
+            _ ->
+                ok
+        end,
+        Tables = mnesia:system_info(tables),
+        case lists:member(akashita_tag, Tables) of
+            false ->
+                {atomic, ok} = mnesia:create_table(akashita_tag, [
+                    {attributes, record_info(fields, akashita_tag)},
+                    {disc_copies, Nodes},
+                    {type, bag}
+                ]),
+                ok;
+            true ->
+                ok
+        end
+    end,
+    % create our tables if they do not exist
+    case mnesia:system_info(is_running) of
+        no ->
+            rpc:multicall(Nodes, application, start, [mnesia]),
+            EnsureTables(),
+            rpc:multicall(Nodes, application, stop, [mnesia]);
+        _ ->
+            EnsureTables()
+    end.
+
+% Ensure the mnesia application is running on all nodes.
+ensure_mnesia(Nodes) ->
+    case mnesia:system_info(is_running) of
+        no ->
+            rpc:multicall(Nodes, application, start, [mnesia]);
+        _ ->
+            ok
+    end.
+
+% Retrieve (or compute) the tag used in naming various elements, such as
+% zfs snapshots, vaults, archives, etc.
+retrieve_tag() ->
+    F = fun() ->
+        case mnesia:read({akashita_tag, ?THE_TAG}) of
+            [] ->
+                {{Year, Month, Day}, {_Hour, _Min, _Sec}} = calendar:local_time(),
+                ValueHilly = io_lib:format("~4.10.0B-~2.10.0B-~2.10.0B", [Year, Month, Day]),
+                ValueFlat = lists:flatten(ValueHilly),
+                mnesia:write(#akashita_tag{key=?THE_TAG, value=ValueFlat}),
+                ValueFlat;
+            [Tag] -> Tag#akashita_tag.value
+        end
+    end,
+    mnesia:activity(transaction, F).

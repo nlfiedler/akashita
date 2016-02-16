@@ -29,6 +29,11 @@
 init_per_suite(Config) ->
     % ensure lager is configured for testing
     ok = application:set_env(lager, lager_common_test_backend, debug),
+    Priv = ?config(priv_dir, Config),
+    application:set_env(mnesia, dir, Priv),
+    akashita_app:ensure_schema([node()]),
+    application:start(mnesia),
+    application:start(akashita_app),
     Config.
 
 end_per_suite(_Config) ->
@@ -40,7 +45,8 @@ all() ->
         ensure_archives_test,
         ensure_snapshot_exists_test,
         ensure_clone_exists_test,
-        destroy_dataset_test
+        destroy_dataset_test,
+        retrieve_tag_test
     ].
 
 %% Test the is_go_time/3 function.
@@ -228,3 +234,10 @@ destroy_dataset_test(Config) ->
             ct:log(os:cmd("sudo zpool destroy panzer")),
             ok = file:delete(FSFile)
     end.
+
+% Test the retrieve_tag/0 function.
+retrieve_tag_test(_Config) ->
+    Tag1 = akashita_app:retrieve_tag(),
+    Tag2 = akashita_app:retrieve_tag(),
+    ?assertEqual(Tag1, Tag2),
+    ok.
