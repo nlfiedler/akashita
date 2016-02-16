@@ -27,7 +27,8 @@
 -module(akashita).
 
 -export([main/1, is_go_time/3]).
--export([ensure_snapshot_exists/2, ensure_archives/3]).
+-export([ensure_archives/3]).
+-export([ensure_clone_exists/3, ensure_snapshot_exists/2]).
 
 main(_Args) ->
     io:format("Starting backup process...~n"),
@@ -37,7 +38,6 @@ main(_Args) ->
         _ -> ok
     end.
 
-% TODO: code the zfs clone function
 % TODO: code the zfs dataset destroy function
 % TODO: read the akashita configuration from sys.config (or similar)
 % TODO: code and test the vault completion cache
@@ -92,7 +92,7 @@ ensure_snapshot_exists(Name, Dataset) ->
                     % zfs snapshot already exists
                     ok;
                 {ok, _C} ->
-                    % create the zfs snapshot
+                    % create the zfs snapshot (does not require sudo)
                     lager:info("creating zfs snapshot ~s", [Snapshot]),
                     SnapArgs = ["snapshot", "-o", "com.sun:auto-snapshot=false", Snapshot],
                     SnapPort = erlang:open_port({spawn_executable, ZfsBin},
@@ -101,6 +101,50 @@ ensure_snapshot_exists(Name, Dataset) ->
                     lager:info("zfs snapshot ~s created", [Snapshot])
             end,
             {ok, Snapshot}
+    end.
+
+% Ensure that the named zfs Clone exists for the given Snapshot. Returns ok.
+ensure_clone_exists(Clone, Snapshot, Config) ->
+    case os:find_executable("zfs") of
+        false ->
+            lager:info("missing 'zfs' in PATH"),
+            error(missing_zfs);
+        ZfsBin ->
+            ListPort = erlang:open_port({spawn_executable, ZfsBin},
+                [exit_status, {args, ["list", "-H", Clone]}]),
+            case wait_for_port(ListPort) of
+                {ok, 0} ->
+                    % zfs clone already exists
+                    ok;
+                {ok, _C} ->
+                    % create the zfs clone
+                    lager:info("creating zfs clone ~s of ~s", [Clone, Snapshot]),
+                    CloneArgs = [
+                        "clone",
+                        "-o", "com.sun:auto-snapshot=false",
+                        "-p",
+                        Snapshot,
+                        Clone
+                    ],
+                    % creating a clone may require sudo
+                    ClonePort = case proplists:get_bool(use_sudo, Config) of
+                        false ->
+                            erlang:open_port({spawn_executable, ZfsBin},
+                                [exit_status, {args, CloneArgs}]);
+                        true ->
+                            case os:find_executable("sudo") of
+                                false ->
+                                    lager:info("missing 'sudo' in PATH"),
+                                    error(missing_sudo);
+                                SudoBin ->
+                                    erlang:open_port({spawn_executable, SudoBin},
+                                        [exit_status, {args, [ZfsBin] ++ CloneArgs}])
+                            end
+                    end,
+                    {ok, 0} = wait_for_port(ClonePort),
+                    lager:info("zfs clone ~s created", [Clone]),
+                    ok
+            end
     end.
 
 % Ensure the archives are created for the named Vault, with the Tag as the

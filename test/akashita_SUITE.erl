@@ -38,7 +38,8 @@ all() ->
     [
         is_go_time_test,
         ensure_archives_test,
-        ensure_snapshot_exists_test
+        ensure_snapshot_exists_test,
+        ensure_clone_exists_test
     ].
 
 %% Test the is_go_time/3 function.
@@ -117,8 +118,10 @@ ensure_archives_test(_Config) ->
     ?assertEqual($/, hd(TmpDir)),
     ct:log(default, 50, "splits dir: ~s", [TmpDir]),
     Cwd = os:getenv("PWD"),
+    ct:log(default, 50, "PWD: ~s", [Cwd]),
     SplitSize = integer_to_list(?SPLIT_SIZE),
-    Options = [{paths, ["."]}, {dataset, tl(Cwd)}],
+    % exclude the ever-growing logs directory tree
+    Options = [{paths, ["."]}, {dataset, tl(Cwd)}, {excludes, ["logs"]}],
     Vault = "xfiles",
     Tag = "10-14-2005",
     AppConfig = [{split_size, SplitSize}, {tmpdir, TmpDir}, {vaults, [{Vault, Options}]}],
@@ -138,7 +141,7 @@ ensure_archives_test(_Config) ->
 ensure_snapshot_exists_test(Config) ->
     case os:find_executable("zfs") of
         false ->
-            cg:log("missing 'zfs' in PATH, skipping test..."),
+            ct:log("missing 'zfs' in PATH, skipping test..."),
             ok;
         _ZfsBin ->
             PrivDir = ?config(priv_dir, Config),
@@ -147,8 +150,9 @@ ensure_snapshot_exists_test(Config) ->
             % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind
             os:cmd("sudo zpool create panzer " ++ FSFile),
             {ok, Snapshot} = akashita:ensure_snapshot_exists("10-14-2005", "panzer"),
-            Snapshots = os:cmd("sudo zfs list -r -t snapshot"),
-            ?assert(string:str(Snapshots, "panzer@glacier:10-14-2005") > 0),
+            Snapshots = os:cmd("zfs list -H -r -t snapshot panzer@glacier:10-14-2005"),
+            [DatasetName|_Rest] = re:split(Snapshots, "\t", [{return, list}]),
+            ?assertEqual("panzer@glacier:10-14-2005", DatasetName),
             % do it again to make sure it does not crash, and returns the same name
             {ok, Snapshot} = akashita:ensure_snapshot_exists("10-14-2005", "panzer"),
             os:cmd("sudo zpool destroy panzer"),
@@ -176,3 +180,30 @@ verify_split_files(SplitsDir, Prefix) ->
     end,
     ?assert(lists:all(CorrectFile, SameSizeSplits)),
     length(SplitFiles).
+
+% Test the ensure_clone_exists/3 function.
+ensure_clone_exists_test(Config) ->
+    case os:find_executable("zfs") of
+        false ->
+            ct:log("missing 'zfs' in PATH, skipping test..."),
+            ok;
+        _ZfsBin ->
+            PrivDir = ?config(priv_dir, Config),
+            FSFile = filename:join(PrivDir, "tank_file"),
+            ct:log(os:cmd("mkfile 100m " ++ FSFile)),
+            % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind
+            ct:log(os:cmd("sudo zpool create panzer " ++ FSFile)),
+            ct:log(os:cmd("zfs snapshot panzer@glacier:10-14-2005")),
+            AppConfig = [{use_sudo, true}],
+            ok = akashita:ensure_clone_exists(
+                "panzer/parts", "panzer@glacier:10-14-2005", AppConfig),
+            Datasets = os:cmd("zfs list"),
+            ct:log(default, 50, "datasets: ~s", [Datasets]),
+            ?assert(string:str(Datasets, "panzer/parts") > 0),
+            % do it again to make sure it does not crash
+            ok = akashita:ensure_clone_exists(
+                "panzer/parts", "panzer@glacier:10-14-2005", AppConfig),
+            ct:log(os:cmd("sudo zpool destroy panzer")),
+            ok = file:delete(FSFile),
+            ok
+    end.
