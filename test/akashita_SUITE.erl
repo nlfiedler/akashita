@@ -39,7 +39,8 @@ all() ->
         is_go_time_test,
         ensure_archives_test,
         ensure_snapshot_exists_test,
-        ensure_clone_exists_test
+        ensure_clone_exists_test,
+        destroy_dataset_test
     ].
 
 %% Test the is_go_time/3 function.
@@ -156,8 +157,7 @@ ensure_snapshot_exists_test(Config) ->
             % do it again to make sure it does not crash, and returns the same name
             {ok, Snapshot} = akashita:ensure_snapshot_exists("10-14-2005", "panzer"),
             os:cmd("sudo zpool destroy panzer"),
-            ok = file:delete(FSFile),
-            ok
+            ok = file:delete(FSFile)
     end.
 
 % Verify that the split files are all ?SPLIT_SIZE bytes in size, except the
@@ -204,6 +204,27 @@ ensure_clone_exists_test(Config) ->
             ok = akashita:ensure_clone_exists(
                 "panzer/parts", "panzer@glacier:10-14-2005", AppConfig),
             ct:log(os:cmd("sudo zpool destroy panzer")),
-            ok = file:delete(FSFile),
-            ok
+            ok = file:delete(FSFile)
+    end.
+
+% Test the destroy_dataset/2 function.
+destroy_dataset_test(Config) ->
+    case os:find_executable("zfs") of
+        false ->
+            ct:log("missing 'zfs' in PATH, skipping test..."),
+            ok;
+        _ZfsBin ->
+            PrivDir = ?config(priv_dir, Config),
+            FSFile = filename:join(PrivDir, "tank_file"),
+            ct:log(os:cmd("mkfile 100m " ++ FSFile)),
+            % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind
+            ct:log(os:cmd("sudo zpool create panzer " ++ FSFile)),
+            ct:log(os:cmd("zfs snapshot panzer@glacier:10-14-2005")),
+            AppConfig = [{use_sudo, true}],
+            ok = akashita:destroy_dataset("panzer@glacier:10-14-2005", AppConfig),
+            Datasets = os:cmd("zfs list"),
+            ct:log(default, 50, "datasets: ~s", [Datasets]),
+            ?assertEqual(0, string:str(Datasets, "panzer@glacier:10-14-2005")),
+            ct:log(os:cmd("sudo zpool destroy panzer")),
+            ok = file:delete(FSFile)
     end.

@@ -29,6 +29,7 @@
 -export([main/1, is_go_time/3]).
 -export([ensure_archives/3]).
 -export([ensure_clone_exists/3, ensure_snapshot_exists/2]).
+-export([destroy_dataset/2]).
 
 main(_Args) ->
     io:format("Starting backup process...~n"),
@@ -38,7 +39,6 @@ main(_Args) ->
         _ -> ok
     end.
 
-% TODO: code the zfs dataset destroy function
 % TODO: read the akashita configuration from sys.config (or similar)
 % TODO: code and test the vault completion cache
 % TODO: code and test the "tag" computation and caching
@@ -145,6 +145,35 @@ ensure_clone_exists(Clone, Snapshot, Config) ->
                     lager:info("zfs clone ~s created", [Clone]),
                     ok
             end
+    end.
+
+% Destroy the named zfs dataset. The Config indicates if sudo is needed or
+% not. Returns ok on success (raises error otherwise).
+destroy_dataset(Dataset, Config) ->
+    case os:find_executable("zfs") of
+        false ->
+            lager:info("missing 'zfs' in PATH"),
+            error(missing_zfs);
+        ZfsBin ->
+            % destroying a dataset may require sudo
+            ZfsArgs = ["destroy", Dataset],
+            ZfsPort = case proplists:get_bool(use_sudo, Config) of
+                false ->
+                    erlang:open_port({spawn_executable, ZfsBin},
+                        [exit_status, {args, ZfsArgs}]);
+                true ->
+                    case os:find_executable("sudo") of
+                        false ->
+                            lager:info("missing 'sudo' in PATH"),
+                            error(missing_sudo);
+                        SudoBin ->
+                            erlang:open_port({spawn_executable, SudoBin},
+                                [exit_status, {args, [ZfsBin] ++ ZfsArgs}])
+                    end
+            end,
+            {ok, 0} = wait_for_port(ZfsPort),
+            lager:info("zfs destroy ~s successful", [Dataset]),
+            ok
     end.
 
 % Ensure the archives are created for the named Vault, with the Tag as the
