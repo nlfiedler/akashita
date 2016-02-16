@@ -134,11 +134,10 @@ ensure_archives_test(_Config) ->
     Tag = "10-14-2005",
     AppConfig = [{split_size, SplitSize}, {tmpdir, TmpDir}, {vaults, [{Vault, Options}]}],
     % create the archives
-    ?assertEqual(ok, akashita:ensure_archives(Vault, Tag, AppConfig)),
-    SplitsDir = filename:join(TmpDir, io_lib:format("~s-~s", [Vault, Tag])),
+    SplitsDir = akashita:ensure_archives(Vault, Tag, AppConfig),
     NumSplits1 = verify_split_files(SplitsDir, "xfiles"),
     % call the same function again, should not create any new files
-    ?assertEqual(ok, akashita:ensure_archives(Vault, Tag, AppConfig)),
+    SplitsDir = akashita:ensure_archives(Vault, Tag, AppConfig),
     NumSplits2 = verify_split_files(SplitsDir, "xfiles"),
     ?assertEqual(NumSplits1, NumSplits2),
     % remove the split files and the temp directory

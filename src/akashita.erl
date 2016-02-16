@@ -30,6 +30,7 @@
 -export([ensure_archives/3]).
 -export([ensure_clone_exists/3, ensure_snapshot_exists/2]).
 -export([destroy_dataset/2]).
+-export([ensure_vault_created/1, upload_archive/1]).
 
 main(_Args) ->
     io:format("Starting backup process...~n"),
@@ -38,8 +39,6 @@ main(_Args) ->
     receive
         _ -> ok
     end.
-
-% TODO: read the akashita configuration from sys.config (or similar)
 
 % Determine if given time falls within upload window(s). Windows is a list
 % of strings in HH:MM-HH:MM format. The hours are 24-hour. The times can
@@ -72,6 +71,14 @@ is_go_time(Windows, Hour, Minute)
         end
     end,
     lists:any(InWindow, Windows).
+
+% TODO: ensure the vault has been created
+ensure_vault_created(_Vault) ->
+    ok.
+
+% TODO: upload a single archive file, retrying as needed
+upload_archive(_Archive) ->
+    ok.
 
 % Create the ZFS snapshot, if it is missing, where Name is the snapshot
 % name, and Dataset is the name of the zfs dataset for which a snapshot
@@ -176,7 +183,8 @@ destroy_dataset(Dataset, Config) ->
 
 % Ensure the archives are created for the named Vault, with the Tag as the
 % suffix of the working directory where the archives will be created. The
-% Config is a proplist taken from the application configuration.
+% Config is a proplist taken from the application configuration. Returns
+% the path of the generated archives.
 ensure_archives(Vault, Tag, Config) ->
     WorkDir = proplists:get_value(tmpdir, Config),
     ArchiveDir = filename:join(WorkDir, io_lib:format("~s-~s", [Vault, Tag])),
@@ -198,7 +206,7 @@ ensure_archives(Vault, Tag, Config) ->
     end,
     % ensure the target directory exists, and if it is empty, create the archives
     try EnsureArchives() of
-        ok -> ok
+        ok -> ArchiveDir
     catch
         error:Error ->
             lager:error("error creating archives: ~w", [Error]),
