@@ -19,7 +19,7 @@
 %%
 %% -------------------------------------------------------------------
 %%
-%% This modules contains the bulk of the backup logic.
+%% Primary driver of the backup procedure.
 %%
 -module(akashita_backup).
 -behavior(gen_server).

@@ -19,11 +19,8 @@
 %%
 %% -------------------------------------------------------------------
 %%
-%% Backup ZFS datasets to Amazon Glaicer.
+%% The low-level, easily testable functions.
 %%
-%% This module contains the low-level, easily testable functions.
-%%
-
 -module(akashita).
 
 -export([main/1, is_go_time/3]).

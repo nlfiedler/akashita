@@ -18,6 +18,9 @@
 %% under the License.
 %%
 %% -------------------------------------------------------------------
+%%
+%% Application management and data storage functions.
+%%
 -module(akashita_app).
 -behaviour(application).
 -export([start/2, stop/1, ensure_schema/1]).
