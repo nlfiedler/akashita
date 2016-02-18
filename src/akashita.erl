@@ -35,6 +35,8 @@
 main(_Args) ->
     io:format("Starting backup process...~n"),
     {ok, _Started} = application:ensure_all_started(akashita),
+    % get the backup process started immediately
+    ok = gen_server:cast(akashita_backup, process),
     % block forever (this process is not expected to receive messages)
     receive
         _ -> ok

@@ -301,7 +301,7 @@ process_uploads_test(Config) ->
             ok = application:set_env(akashita, vaults, VaultsConf),
             % fire up the application and wait for it to finish
             {ok, _Started} = application:ensure_all_started(akashita),
-            ok = gen_server:call(akashita_backup, process_now, infinity),
+            ok = gen_server:call(akashita_backup, begin_backup, infinity),
             % examine the log file to ensure it created a vault and uploaded archives
             {ok, BackupBin} = file:read_file(BackupLog),
             BackupText = binary_to_list(BackupBin),

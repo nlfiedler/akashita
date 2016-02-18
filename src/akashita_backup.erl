@@ -26,7 +26,7 @@
 -export([start_link/0]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
--record(state, {timer, vault}).
+-record(state, {vault}).
 
 %%
 %% Client API
@@ -38,15 +38,11 @@ start_link() ->
 %% gen_server callbacks
 %%
 init([]) ->
-    {ok, TRef} = fire_soon(),
     Vault = next_eligible_vault(),
-    State = #state{timer=TRef, vault=Vault},
+    State = #state{vault=Vault},
     {ok, State}.
 
-handle_call(process_now, _From, State) ->
-    % Cancel the pending timer and process the uploads immediately, and
-    % synchronously, for the sake of testing.
-    {ok, cancel} = timer:cancel(State#state.timer),
+handle_call(begin_backup, _From, State) ->
     NewState = process_uploads(State),
     {reply, ok, NewState};
 handle_call(terminate, _From, State) ->
@@ -68,6 +64,10 @@ terminate(_Reason, _State) ->
 code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
+%%
+%% Private functions
+%%
+
 % Process the pending uploads until it is time to pause, or we are finished.
 process_uploads(State) ->
     {ok, GoTimes} = application:get_env(akashita, go_times),
@@ -79,18 +79,18 @@ process_uploads(State) ->
                 true -> next_eligible_vault();
                 false -> Vault
             end,
-            NewState = State#state{vault=NextVault},
             case is_backup_complete() of
                 true ->
                     % The server will now enter a period of rest until the
                     % next time it is asked to begin a new backup.
-                    NewState;
+                    ok = akashita_app:delete_cache(),
+                    #state{vault=next_eligible_vault()};
                 false ->
-                    process_uploads(NewState)
+                    process_uploads(#state{vault=NextVault})
             end;
         false ->
-            {ok, TRef} = fire_later(),
-            State#state{timer=TRef}
+            {ok, _TRef} = fire_later(),
+            State
     end.
 
 % Process a single archive in the given Vault. If this vault is now
@@ -162,10 +162,3 @@ fire_later() ->
     F = cast,
     A = [akashita_backup, process],
     timer:apply_after(1000*60*10, M, F, A).
-
-% Start a timer to cast a 'process' message to us in 10 seconds.
-fire_soon() ->
-    M = gen_server,
-    F = cast,
-    A = [akashita_backup, process],
-    timer:apply_after(1000*10, M, F, A).
