@@ -30,11 +30,11 @@
 -export([ensure_archives/3]).
 -export([ensure_clone_exists/3, ensure_snapshot_exists/2]).
 -export([destroy_dataset/2]).
--export([ensure_vault_created/1, upload_archive/1]).
+-export([ensure_vault_created/1, upload_archive/3]).
 
 main(_Args) ->
     io:format("Starting backup process...~n"),
-    {ok, _Started} = application:ensure_all_started(akashita_app),
+    {ok, _Started} = application:ensure_all_started(akashita),
     % block forever (this process is not expected to receive messages)
     receive
         _ -> ok
@@ -72,13 +72,48 @@ is_go_time(Windows, Hour, Minute)
     end,
     lists:any(InWindow, Windows).
 
-% TODO: ensure the vault has been created
-ensure_vault_created(_Vault) ->
-    ok.
+% Ensure the named Vault has been created.
+ensure_vault_created(Vault) ->
+    case application:get_env(akashita, test_log) of
+        undefined ->
+            PrivPath = code:priv_dir(akashita_backup),
+            Cmd = filename:join(PrivPath, "klutlan"),
+            Args = ["-create", "-vault", Vault],
+            Port = erlang:open_port({spawn_executable, Cmd}, [exit_status, {args, Args}]),
+            {ok, 0} = wait_for_port(Port),
+            ok;
+        {ok, LogFile} ->
+            % in test mode, write to a log file
+            {ok, IoDevice} = file:open(LogFile, [append]),
+            Record = io_lib:format("vault ~s created\n", [Vault]),
+            ok = file:write(IoDevice, list_to_binary(Record)),
+            ok = file:close(IoDevice)
+    end.
 
-% TODO: upload a single archive file, retrying as needed
-upload_archive(_Archive) ->
-    ok.
+% Upload a single archive file, retrying as needed.
+upload_archive(Archive, Desc, Vault) ->
+    case application:get_env(akashita, test_log) of
+        undefined ->
+            PrivPath = code:priv_dir(akashita_backup),
+            Cmd = filename:join(PrivPath, "klutlan"),
+            Args = ["-upload", Archive, "-desc", Desc, "-vault", Vault],
+            Port = erlang:open_port({spawn_executable, Cmd}, [exit_status, {args, Args}]),
+            case wait_for_port(Port) of
+                {ok, 0} -> ok;
+                {ok, _C} ->
+                    % keep trying until it works or we get an error
+                    upload_archive(Archive, Desc, Vault);
+                {error, Reason} ->
+                    lager:error("upload archive ~s failed, ~s", [Archive, Reason]),
+                    error(Reason)
+            end;
+        {ok, LogFile} ->
+            % in test mode, write to a log file
+            {ok, IoDevice} = file:open(LogFile, [append]),
+            Record = io_lib:format("archive ~s uploaded\n", [Archive]),
+            ok = file:write(IoDevice, list_to_binary(Record)),
+            ok = file:close(IoDevice)
+    end.
 
 % Create the ZFS snapshot, if it is missing, where Name is the snapshot
 % name, and Dataset is the name of the zfs dataset for which a snapshot
@@ -92,7 +127,7 @@ ensure_snapshot_exists(Name, Dataset) ->
         ZfsBin ->
             ListPort = erlang:open_port({spawn_executable, ZfsBin},
                 [exit_status, {args, ["list", "-H", Snapshot]}]),
-            case wait_for_port(ListPort) of
+            case wait_for_port(ListPort, true) of
                 {ok, 0} ->
                     % zfs snapshot already exists
                     ok;
@@ -117,7 +152,7 @@ ensure_clone_exists(Clone, Snapshot, Config) ->
         ZfsBin ->
             ListPort = erlang:open_port({spawn_executable, ZfsBin},
                 [exit_status, {args, ["list", "-H", Clone]}]),
-            case wait_for_port(ListPort) of
+            case wait_for_port(ListPort, true) of
                 {ok, 0} ->
                     % zfs clone already exists
                     ok;
@@ -192,7 +227,8 @@ ensure_archives(Vault, Tag, Config) ->
         VaultList = proplists:get_value(vaults, Config),
         VaultConf = proplists:get_value(Vault, VaultList),
         SplitSize = proplists:get_value(split_size, Config, "64M"),
-        create_archives(Vault, ArchiveDir, SplitSize, VaultConf)
+        DefaultExcludes = proplists:get_value(default_excludes, Config, []),
+        create_archives(Vault, ArchiveDir, SplitSize, VaultConf, DefaultExcludes)
     end,
     EnsureArchives = fun() ->
         case file:list_dir(ArchiveDir) of
@@ -211,7 +247,7 @@ ensure_archives(Vault, Tag, Config) ->
         error:Error ->
             lager:error("error creating archives: ~w", [Error]),
             os:cmd("rm -rf " ++ ArchiveDir),
-            {error, Error}
+            error(Error)
     end.
 
 % Produce the tar archives (split into reasonably sized files) for the list
@@ -219,12 +255,12 @@ ensure_archives(Vault, Tag, Config) ->
 % directory, also defined in Options), with the split files having the
 % given Vault name as a prefix. The split files will be created in the
 % SplitDir directory.
-create_archives(Vault, SplitDir, SplitSize, Options) ->
-    lager:info("generating tar archives...~n"),
+create_archives(Vault, SplitDir, SplitSize, Options, DefaultExcludes) ->
+    lager:info("generating tar archives..."),
     Paths = proplists:get_value(paths, Options),
     SourceDir = "/" ++ proplists:get_value(dataset, Options),
     Compress = proplists:get_bool(compress, Options),
-    Exclusions = proplists:get_value(excludes, Options, []),
+    Exclusions = proplists:get_value(excludes, Options, DefaultExcludes),
     TarCmd = string:join(tar_cmd(Paths, Compress, Exclusions), " "),
     TarPort = erlang:open_port({spawn, TarCmd}, [exit_status, binary, {cd, SourceDir}]),
     SplitCmd = string:join(split_cmd(Vault, SplitSize), " "),
@@ -234,7 +270,7 @@ create_archives(Vault, SplitDir, SplitSize, Options) ->
     % close the ports so the programs know to terminate (especially split)
     ensure_port_closed(TarPort),
     ensure_port_closed(SplitPort),
-    lager:info("tar archive creation complete~n"),
+    lager:info("tar archive creation complete"),
     ok.
 
 % Generate the command to invoke tar for the given set of file paths.
@@ -245,7 +281,7 @@ tar_cmd(Paths, Compress, Exclusions) ->
     end,
     Eopt = case Exclusions of
         [] -> [];
-        _ -> Exclusions
+        _ -> ["--exclude " ++ E || E <- Exclusions]
     end,
     % Need the "-f -" for bsdtar, otherwise it attempts to use the default
     % tape drive device (/dev/sa0).
@@ -281,25 +317,34 @@ pipe_until_exit(SendPort, RecvPort, ClosedCount) ->
             RecvPort ! {self(), {command, Data}},
             pipe_until_exit(SendPort, RecvPort, ClosedCount);
         {RecvPort, {data, _Data}} ->
-            lager:notice("received data from receiving port~n"),
+            lager:notice("received data from receiving port"),
             pipe_until_exit(SendPort, RecvPort, ClosedCount);
         {'EXIT', Port, Reason} ->
-            lager:info("port ~w exited, ~w~n", [Port, Reason])
+            lager:info("port ~w exited, ~w", [Port, Reason])
     end.
 
 % Wait for the given Port to complete and return the exit code in the form
 % of {ok, Status}. Any output received is written to the log. If the port
 % experiences an error, returns {error, Reason}.
 wait_for_port(Port) ->
+    wait_for_port(Port, false).
+
+% Wait for the given Port to complete and return the exit code in the form
+% of {ok, Status}. Any output received is written to the log. If the port
+% experiences an error, returns {error, Reason}. If Quiet is true, output
+% from the port is ignored.
+wait_for_port(Port, Quiet) when is_boolean(Quiet) ->
     receive
         {Port, {exit_status, Status}} ->
             ensure_port_closed(Port),
             {ok, Status};
         {Port, {data, Data}} ->
-            lager:notice("received output from port: ~w", [Data]),
+            if Quiet -> lager:notice("output from port ignored...");
+                true -> lager:notice("received output from port: ~s", [Data])
+            end,
             wait_for_port(Port);
         {'EXIT', Port, Reason} ->
-            lager:info("port ~w exited, ~w~n", [Port, Reason]),
+            lager:info("port ~w exited, ~w", [Port, Reason]),
             {error, Reason}
     end.
 

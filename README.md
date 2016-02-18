@@ -5,6 +5,8 @@
 ## TODO
 
 * Finish converting the Python-based prototype to Erlang/Go hybrid.
+* The `klutlan` binary needs to be copied to the `priv` directory during build.
+* Set up application configuration, most likely via `sys.config`.
 * Make sure lager is eventually configured during startup.
 
 ## Requirements

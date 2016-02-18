@@ -28,8 +28,6 @@
 
 -record(state, {timer, vault}).
 
-% TODO: setup application configuration (most likely sys.config)
-
 %%
 %% Client API
 %%
@@ -45,6 +43,12 @@ init([]) ->
     State = #state{timer=TRef, vault=Vault},
     {ok, State}.
 
+handle_call(process_now, _From, State) ->
+    % Cancel the pending timer and process the uploads immediately, and
+    % synchronously, for the sake of testing.
+    {ok, cancel} = timer:cancel(State#state.timer),
+    NewState = process_uploads(State),
+    {reply, ok, NewState};
 handle_call(terminate, _From, State) ->
     {stop, normal, ok, State}.
 
@@ -66,7 +70,7 @@ code_change(_OldVsn, State, _Extra) ->
 
 % Process the pending uploads until it is time to pause, or we are finished.
 process_uploads(State) ->
-    {ok, GoTimes} = application:get_env(akashita_backup, go_times),
+    {ok, GoTimes} = application:get_env(akashita, go_times),
     {{_Y, _M, _D}, {Hour,  Min, _S}} = erlang:localtime(),
     case akashita:is_go_time(GoTimes, Hour, Min) of
         true ->
@@ -75,12 +79,11 @@ process_uploads(State) ->
                 true -> next_eligible_vault();
                 false -> Vault
             end,
-            NewState = #state{timer=State#state.timer, vault=NextVault},
+            NewState = State#state{vault=NextVault},
             case is_backup_complete() of
                 true ->
-                    % TODO: is this sufficient to shutdown the entire application?
-                    %       calling application:stop/1 won't do it, according to the docs
-                    gen_server:call(akashita_backup, terminate),
+                    % The server will now enter a period of rest until the
+                    % next time it is asked to begin a new backup.
                     NewState;
                 false ->
                     process_uploads(NewState)
@@ -96,24 +99,29 @@ process_one_archive(undefined) ->
     % just in case this happens, pretend we finished this "vault"
     true;
 process_one_archive(Vault) ->
-    AppConfig = application:get_all_env(akashita_backup),
+    AppConfig = application:get_all_env(akashita),
     Tag = akashita_app:retrieve_tag(),
-    {ok, Snapshot} = akashita:ensure_snapshot_exists(Tag, Vault),
     VaultList = proplists:get_value(vaults, AppConfig),
     VaultConf = proplists:get_value(Vault, VaultList),
-    CloneBase = proplists:get_value(clone_base, VaultConf),
-    CloneName = filename:join(CloneBase, Vault),
+    Dataset = proplists:get_value(dataset, VaultConf),
+    {ok, Snapshot} = akashita:ensure_snapshot_exists(Tag, Dataset),
+    CloneName = proplists:get_value(clone_base, VaultConf),
     ok = akashita:ensure_clone_exists(CloneName, Snapshot, AppConfig),
     ok = akashita:ensure_vault_created(Vault),
-    ArchiveDir = akashita:ensure_archives(Vault, Tag, VaultConf),
+    ArchiveDir = akashita:ensure_archives(Vault, Tag, AppConfig),
     case file:list_dir(ArchiveDir) of
-        [] ->
+        {ok, []} ->
             % this should not have happened
             error(empty_archive_dir);
-        [Archive|Rest] ->
+        {ok, [Archive|Rest]} ->
             lager:info("uploading archive: ~s", [Archive]),
-            ok = akashita:upload_archive(Archive),
-            ok = file:delete(Archive),
+            T1 = erlang:system_time(seconds),
+            Desc = "filename:" ++ Archive,
+            ArchivePath = filename:join(ArchiveDir, Archive),
+            ok = akashita:upload_archive(ArchivePath, Desc, Vault),
+            T2 = erlang:system_time(seconds),
+            lager:info("archive ~s uploaded in ~.2f minutes", [Archive, (T2 - T1)/60]),
+            ok = file:delete(ArchivePath),
             case length(Rest) of
                 0 ->
                     ok = akashita_app:remember_completed_vault(Vault),
@@ -129,7 +137,7 @@ process_one_archive(Vault) ->
 
 % Determine if the entire backup process has been completed or not.
 is_backup_complete() ->
-    {ok, Vaults} = application:get_env(akashita_backup, vaults),
+    {ok, Vaults} = application:get_env(akashita, vaults),
     VaultNames = proplists:get_keys(Vaults),
     Completed = fun(Name) ->
         akashita_app:is_vault_completed(Name)
@@ -138,7 +146,7 @@ is_backup_complete() ->
 
 % Find the next vault that has not yet been processed, or undefined if none.
 next_eligible_vault() ->
-    {ok, Vaults} = application:get_env(akashita_backup, vaults),
+    {ok, Vaults} = application:get_env(akashita, vaults),
     VaultNames = proplists:get_keys(Vaults),
     NotCompleted = fun(Name) ->
         akashita_app:is_vault_completed(Name) == false

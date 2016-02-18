@@ -30,14 +30,14 @@ init_per_suite(Config) ->
     % ensure lager is configured for testing
     ok = application:set_env(lager, lager_common_test_backend, debug),
     Priv = ?config(priv_dir, Config),
-    application:set_env(mnesia, dir, Priv),
+    ok = application:set_env(mnesia, dir, Priv),
     akashita_app:ensure_schema([node()]),
-    application:start(mnesia),
-    application:start(akashita_app),
+    ok = application:start(mnesia),
     Config.
 
 end_per_suite(_Config) ->
-    ok.
+    ok = application:stop(akashita),
+    ok = application:stop(mnesia).
 
 all() ->
     [
@@ -47,7 +47,8 @@ all() ->
         ensure_clone_exists_test,
         destroy_dataset_test,
         retrieve_tag_test,
-        vault_completed_test
+        vault_completed_test,
+        process_uploads_test
     ].
 
 %% Test the is_go_time/3 function.
@@ -153,7 +154,7 @@ ensure_snapshot_exists_test(Config) ->
         _ZfsBin ->
             PrivDir = ?config(priv_dir, Config),
             FSFile = filename:join(PrivDir, "tank_file"),
-            os:cmd("mkfile 100m " ++ FSFile),
+            os:cmd("mkfile 64m " ++ FSFile),
             % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind
             os:cmd("sudo zpool create panzer " ++ FSFile),
             {ok, Snapshot} = akashita:ensure_snapshot_exists("10-14-2005", "panzer"),
@@ -196,7 +197,7 @@ ensure_clone_exists_test(Config) ->
         _ZfsBin ->
             PrivDir = ?config(priv_dir, Config),
             FSFile = filename:join(PrivDir, "tank_file"),
-            ct:log(os:cmd("mkfile 100m " ++ FSFile)),
+            ct:log(os:cmd("mkfile 64m " ++ FSFile)),
             % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind
             ct:log(os:cmd("sudo zpool create panzer " ++ FSFile)),
             ct:log(os:cmd("zfs snapshot panzer@glacier:10-14-2005")),
@@ -222,7 +223,7 @@ destroy_dataset_test(Config) ->
         _ZfsBin ->
             PrivDir = ?config(priv_dir, Config),
             FSFile = filename:join(PrivDir, "tank_file"),
-            ct:log(os:cmd("mkfile 100m " ++ FSFile)),
+            ct:log(os:cmd("mkfile 64m " ++ FSFile)),
             % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind
             ct:log(os:cmd("sudo zpool create panzer " ++ FSFile)),
             ct:log(os:cmd("zfs snapshot panzer@glacier:10-14-2005")),
@@ -262,3 +263,55 @@ vault_completed_test(_Config) ->
     ?assertNot(akashita_app:is_vault_completed("baz")),
     ?assertNot(akashita_app:is_vault_completed("quux")),
     ok.
+
+% Test the akashita_backup application by setting it up to process a vault,
+% uploading archives and running to completion.
+process_uploads_test(Config) ->
+    case os:find_executable("zfs") of
+        false ->
+            ct:log("missing 'zfs' in PATH, skipping test..."),
+            ok;
+        _ZfsBin ->
+            PrivDir = ?config(priv_dir, Config),
+            FSFile = filename:join(PrivDir, "tank_file"),
+            ct:log(os:cmd("mkfile 64m " ++ FSFile)),
+            % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind
+            ct:log(os:cmd("sudo zpool create panzer " ++ FSFile)),
+            ct:log(os:cmd("sudo zfs create panzer/shared")),
+            Cwd = os:getenv("PWD"),
+            % copy everything except the logs which contains our 64MB file
+            ct:log(os:cmd("sudo rsync --exclude logs -r " ++ Cwd ++ "/* /panzer/shared")),
+            BackupLog = filename:join(PrivDir, "backup.log"),
+            % set up the application environment to backup our data
+            ok = application:set_env(akashita, test_log, BackupLog),
+            ok = application:set_env(akashita, use_sudo, true),
+            ok = application:set_env(akashita, go_times, ["00:00-23:59"]),
+            ok = application:set_env(akashita, tmpdir, PrivDir),
+            ok = application:set_env(akashita, split_size, "256K"),
+            % ignore the bothersome special directory
+            ok = application:set_env(akashita, default_excludes, [".fseventsd"]),
+            VaultsConf = [
+                {"shared", [
+                    {dataset, "panzer/shared"},
+                    {clone_base, "panzer/glacier"},
+                    {paths, ["."]},
+                    {compressed, false}
+                ]}
+            ],
+            ok = application:set_env(akashita, vaults, VaultsConf),
+            % fire up the application and wait for it to finish
+            {ok, _Started} = application:ensure_all_started(akashita),
+            ok = gen_server:call(akashita_backup, process_now, infinity),
+            % examine the log file to ensure it created a vault and uploaded archives
+            {ok, BackupBin} = file:read_file(BackupLog),
+            BackupText = binary_to_list(BackupBin),
+            ?assert(string:str(BackupText, "vault shared created") > 0),
+            ?assert(string:str(BackupText, "shared00000 uploaded") > 0),
+            ?assert(string:str(BackupText, "shared00002 uploaded") > 0),
+            ?assert(string:str(BackupText, "shared00004 uploaded") > 0),
+            ?assert(string:str(BackupText, "shared00006 uploaded") > 0),
+            ?assert(string:str(BackupText, "shared00008 uploaded") > 0),
+            ?assert(string:str(BackupText, "shared00010 uploaded") > 0),
+            ct:log(os:cmd("sudo zpool destroy panzer")),
+            ok = file:delete(FSFile)
+    end.
