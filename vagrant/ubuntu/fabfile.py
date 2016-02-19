@@ -22,7 +22,7 @@
 
 import os
 
-from fabric.api import cd, env, path, run, shell_env, sudo, task
+from fabric.api import cd, env, run, sudo, task
 from fabric.contrib.files import append
 
 env.hosts = ["default"]
@@ -32,13 +32,9 @@ if os.path.exists("user_ssh_config"):
 else:
     env.ssh_config_path = "ssh_config"
 
-DIR_FOP = 'fop-1.1'
-TAR_FOP = '{}-bin.tar.gz'.format(DIR_FOP)
-URL_FOP = 'http://mirrors.sonic.net/apache/xmlgraphics/fop/binaries/{}'.format(TAR_FOP)
 DIR_OTP = 'otp_src_18.2.1'
 TAR_OTP = '{}.tar.gz'.format(DIR_OTP)
 URL_OTP = 'http://erlang.org/download/{}'.format(TAR_OTP)
-URL_GOLANG = 'https://storage.googleapis.com/golang/go1.5.3.linux-amd64.tar.gz'
 
 
 @task
@@ -55,36 +51,26 @@ def install_erlang():
     # Install the compilers, JDK, and XML tools
     pre_reqs = [
         'build-essential',
-        'default-jdk',
         'libncurses5-dev',
         'libssl-dev',
-        'libxml2-utils',
-        'xsltproc',
     ]
     sudo('apt-get -q -y install {}'.format(' '.join(pre_reqs)))
-    # Fetch and extract Apache FOP binary tarball
-    run('wget -q {}'.format(URL_FOP))
-    run('tar zxf {}'.format(TAR_FOP))
     # Prepare to build Erlang/OTP from source
     run('wget -q {}'.format(URL_OTP))
     run('tar zxf {}'.format(TAR_OTP))
-    path_addend = '~/{}'.format(DIR_FOP)
-    with cd(DIR_OTP), path(path_addend):
+    with cd(DIR_OTP):
         run('./configure')
         run('make')
         sudo('make install')
-        with shell_env(FOP_OPTS="-Xmx512m"):
-            run('make docs')
-            sudo('make install-docs')
-    run('rm -rf {}* {}*'.format(DIR_FOP, DIR_OTP))
+    run('rm -rf {}*'.format(DIR_OTP))
 
 
 @task
 def install_golang():
     """Install the Go programming language."""
-    run('wget -q {}'.format(URL_GOLANG))
-    sudo('tar -C /usr/local -xzf go1.5.3.linux-amd64.tar.gz')
-    run('rm -f go1.5.3.linux-amd64.tar.gz')
+    run('wget -q https://storage.googleapis.com/golang/go1.6.linux-amd64.tar.gz')
+    sudo('tar -C /usr/local -xzf go1.6.linux-amd64.tar.gz')
+    run('rm -f go1.6.linux-amd64.tar.gz')
     append('.profile', 'export PATH=$PATH:/usr/local/go/bin')
     run('mkdir gocode')
     append('.profile', 'export GOPATH=~/gocode')
