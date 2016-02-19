@@ -2,17 +2,12 @@
 
 [Akashita](http://en.wikipedia.org/wiki/Akashita) is an Erlang/Go hybrid application to facilitate automatically creating ZFS snapshots and uploading them to [Amazon Glacier](https://aws.amazon.com/glacier/). The intent is for the upload to occur during "off-peak" hours to avoid competing with high-demand Internet services.
 
-## TODO
-
-* The `klutlan` binary needs to be copied to the `priv` directory during build.
-* Set up application configuration, most likely via `sys.config`.
-* Make sure lager is eventually configured during startup.
-
 ## Requirements
 
 * [Erlang/OTP](http://www.erlang.org) R17 or higher
 * [Go](https://golang.org) 1.5 or higher
-* [rebar](https://github.com/rebar/rebar/)
+* [rebar](https://github.com/rebar/rebar/) for compiling and testing
+* [relx](https://github.com/erlware/relx) for building a release
 
 ## Building and Testing
 
@@ -22,6 +17,10 @@ To download the dependencies and build the application, use `rebar` as follows:
 $ rebar compile
 $ rebar ct
 ```
+
+### Vagrant VMs
+
+There are virtual machine definitions, managed using [Vagrant](https://www.vagrantup.com) and provisioned using [Fabric](http://www.fabfile.org), that are available for building and testing on [FreeBSD](https://www.freebsd.org) and [Ubuntu](http://www.ubuntu.com). These are found in the `vagrant` directory. The Linux VM is only good for building and testing manually, as the automated tests make use of `mkfile` to produce temporary ZFS datasets.
 
 ## Usage
 

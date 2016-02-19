@@ -15,6 +15,8 @@ precompile:
 	@(test -f $(GOPATH)/bin/api-info || $(MAKE) aws)
 	@(test -d deps || $(MAKE) deps)
 	go install github.com/nlfiedler/akashita/klutlan
+	@(test -d priv || mkdir priv)
+	cp $(GOPATH)/bin/klutlan priv
 
 postclean:
 	go clean github.com/nlfiedler/akashita/klutlan
@@ -26,4 +28,4 @@ test:
 release: precompile
 	rebar clean
 	rebar compile
-	rebar escriptize
+	relx

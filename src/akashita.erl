@@ -23,21 +23,11 @@
 %%
 -module(akashita).
 
--export([main/1, is_go_time/3]).
+-export([is_go_time/3]).
 -export([ensure_archives/3]).
 -export([ensure_clone_exists/3, ensure_snapshot_exists/2]).
 -export([destroy_dataset/2]).
 -export([ensure_vault_created/1, upload_archive/3]).
-
-main(_Args) ->
-    io:format("Starting backup process...~n"),
-    {ok, _Started} = application:ensure_all_started(akashita),
-    % get the backup process started immediately
-    ok = gen_server:cast(akashita_backup, process),
-    % block forever (this process is not expected to receive messages)
-    receive
-        _ -> ok
-    end.
 
 % Determine if given time falls within upload window(s). Windows is a list
 % of strings in HH:MM-HH:MM format. The hours are 24-hour. The times can

@@ -26,7 +26,7 @@
 -export([start_link/0]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
 
--record(state, {vault}).
+-record(state, {timer, vault}).
 
 %%
 %% Client API
@@ -39,10 +39,16 @@ start_link() ->
 %%
 init([]) ->
     Vault = next_eligible_vault(),
-    State = #state{vault=Vault},
+    {ok, TRef} = fire_later(),
+    State = #state{timer=TRef, vault=Vault},
     {ok, State}.
 
 handle_call(begin_backup, _From, State) ->
+    % cancel the current timer, if any
+    case State#state.timer of
+        undefined -> ok;
+        TRef -> {ok, cancel} = timer:cancel(TRef)
+    end,
     NewState = process_uploads(State),
     {reply, ok, NewState};
 handle_call(terminate, _From, State) ->
