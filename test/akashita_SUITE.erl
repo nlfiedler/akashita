@@ -126,7 +126,7 @@ is_go_time_test(_Config) ->
 % Test the ensure_archives/3 function.
 ensure_archives_test(_Config) ->
     % create a temporary directory for the split files
-    TmpDir = string:strip(os:cmd("mktemp -d"), right, $\n),
+    TmpDir = string:strip(?cmd("mktemp -d"), right, $\n),
     % sanity check the result of mktemp so we don't clobber random files
     ?assertEqual($/, hd(TmpDir)),
     ct:log(default, 50, "splits dir: ~s", [TmpDir]),
@@ -146,7 +146,7 @@ ensure_archives_test(_Config) ->
     NumSplits2 = verify_split_files(SplitsDir, "xfiles"),
     ?assertEqual(NumSplits1, NumSplits2),
     % remove the split files and the temp directory
-    os:cmd("rm -rf " ++ TmpDir),
+    ?assertCmd("rm -rf " ++ TmpDir),
     ok.
 
 % Test the ensure_snapshot_exists/2 function.
@@ -158,17 +158,17 @@ ensure_snapshot_exists_test(Config) ->
         _ZfsBin ->
             PrivDir = ?config(priv_dir, Config),
             FSFile = filename:join(PrivDir, "tank_file"),
-            os:cmd("mkfile 64m " ++ FSFile),
+            mkfile(FSFile),
             % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind
-            os:cmd("sudo zpool create panzer " ++ FSFile),
+            ?assertCmd("sudo zpool create panzer " ++ FSFile),
             AppConfig = [{use_sudo, true}],
             {ok, Snapshot} = akashita:ensure_snapshot_exists("10-14-2005", "panzer", AppConfig),
-            Snapshots = os:cmd("sudo zfs list -H -r -t snapshot panzer@glacier:10-14-2005"),
+            Snapshots = ?cmd("sudo zfs list -H -r -t snapshot panzer@glacier:10-14-2005"),
             [DatasetName|_Rest] = re:split(Snapshots, "\t", [{return, list}]),
             ?assertEqual("panzer@glacier:10-14-2005", DatasetName),
             % do it again to make sure it does not crash, and returns the same name
             {ok, Snapshot} = akashita:ensure_snapshot_exists("10-14-2005", "panzer", AppConfig),
-            os:cmd("sudo zpool destroy panzer"),
+            ?assertCmd("sudo zpool destroy panzer"),
             ok = file:delete(FSFile)
     end.
 
@@ -202,20 +202,20 @@ ensure_clone_exists_test(Config) ->
         _ZfsBin ->
             PrivDir = ?config(priv_dir, Config),
             FSFile = filename:join(PrivDir, "tank_file"),
-            ct:log(os:cmd("mkfile 64m " ++ FSFile)),
+            mkfile(FSFile),
             % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind
-            ct:log(os:cmd("sudo zpool create panzer " ++ FSFile)),
-            ct:log(os:cmd("sudo zfs snapshot panzer@glacier:10-14-2005")),
+            ?assertCmd("sudo zpool create panzer " ++ FSFile),
+            ?assertCmd("sudo zfs snapshot panzer@glacier:10-14-2005"),
             AppConfig = [{use_sudo, true}],
             ok = akashita:ensure_clone_exists(
                 "panzer/parts", "panzer@glacier:10-14-2005", AppConfig),
-            Datasets = os:cmd("sudo zfs list"),
+            Datasets = ?cmd("sudo zfs list"),
             ct:log(default, 50, "datasets: ~s", [Datasets]),
             ?assert(string:str(Datasets, "panzer/parts") > 0),
             % do it again to make sure it does not crash
             ok = akashita:ensure_clone_exists(
                 "panzer/parts", "panzer@glacier:10-14-2005", AppConfig),
-            ct:log(os:cmd("sudo zpool destroy panzer")),
+            ?assertCmd("sudo zpool destroy panzer"),
             ok = file:delete(FSFile)
     end.
 
@@ -228,16 +228,16 @@ destroy_dataset_test(Config) ->
         _ZfsBin ->
             PrivDir = ?config(priv_dir, Config),
             FSFile = filename:join(PrivDir, "tank_file"),
-            ct:log(os:cmd("mkfile 64m " ++ FSFile)),
+            mkfile(FSFile),
             % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind
-            ct:log(os:cmd("sudo zpool create panzer " ++ FSFile)),
-            ct:log(os:cmd("sudo zfs snapshot panzer@glacier:10-14-2005")),
+            ?assertCmd("sudo zpool create panzer " ++ FSFile),
+            ?assertCmd("sudo zfs snapshot panzer@glacier:10-14-2005"),
             AppConfig = [{use_sudo, true}],
             ok = akashita:destroy_dataset("panzer@glacier:10-14-2005", AppConfig),
-            Datasets = os:cmd("sudo zfs list"),
+            Datasets = ?cmd("sudo zfs list"),
             ct:log(default, 50, "datasets: ~s", [Datasets]),
             ?assertEqual(0, string:str(Datasets, "panzer@glacier:10-14-2005")),
-            ct:log(os:cmd("sudo zpool destroy panzer")),
+            ?assertCmd("sudo zpool destroy panzer"),
             ok = file:delete(FSFile)
     end.
 
@@ -279,17 +279,17 @@ process_uploads_test(Config) ->
         _ZfsBin ->
             PrivDir = ?config(priv_dir, Config),
             FSFile = filename:join(PrivDir, "tank_file"),
-            ct:log(os:cmd("mkfile 64m " ++ FSFile)),
+            mkfile(FSFile),
             % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind
-            ct:log(os:cmd("sudo zpool create panzer " ++ FSFile)),
-            ct:log(os:cmd("sudo zfs create panzer/shared")),
-            ct:log(os:cmd("sudo chmod 777 /panzer/shared")),
-            ct:log(os:cmd("sudo zfs create panzer/photos")),
-            ct:log(os:cmd("sudo chmod 777 /panzer/photos")),
+            ?assertCmd("sudo zpool create panzer " ++ FSFile),
+            ?assertCmd("sudo zfs create panzer/shared"),
+            ?assertCmd("sudo chmod 777 /panzer/shared"),
+            ?assertCmd("sudo zfs create panzer/photos"),
+            ?assertCmd("sudo chmod 777 /panzer/photos"),
             Cwd = os:getenv("PWD"),
             % copy everything except the logs which contains our 64MB file
             % (and priv contains the giant Go binary)
-            ct:log(os:cmd("rsync --exclude=logs --exclude=priv -r " ++ Cwd ++ "/* /panzer/shared")),
+            ?assertCmd("rsync --exclude=logs --exclude=priv -r " ++ Cwd ++ "/* /panzer/shared"),
             % copy something to the photos "vault", that will result in a single archive
             {ok, _BC} = file:copy(filename:join(Cwd, "test/akashita_SUITE.erl"),
                 "/panzer/photos/akashita_SUITE.erl"),
@@ -341,6 +341,23 @@ process_uploads_test(Config) ->
             ?assert(string:str(BackupText, "vault photos created") > 0),
             ?assert(string:str(BackupText, "photos00000 uploaded") > 0),
             ?assert(string:str(BackupText, "photos00001 uploaded") == 0),
-            ct:log(os:cmd("sudo zpool destroy panzer")),
+            ?assertCmd("sudo zpool destroy panzer"),
             ok = file:delete(FSFile)
     end.
+
+% Run the mkfile command (or its Linux equivalent) to create a temporary
+% filesytem for ZFS to use as a storage pool.
+mkfile(FSFile) ->
+    case os:find_executable("mkfile") of
+        false ->
+            % Hipster Linux doesn't use your grandfather's mkfile...
+            case os:find_executable("fallocate") of
+                false ->
+                    error("need either 'mkfile' or 'fallocate' to run tests");
+                FBin ->
+                    ?assertCmd(FBin ++ " -l 64M " ++ FSFile)
+            end;
+        MBin ->
+            ?assertCmd(MBin ++ " 64m " ++ FSFile)
+    end,
+    ok.

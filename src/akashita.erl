@@ -114,30 +114,15 @@ ensure_snapshot_exists(Name, Dataset, Config) ->
             lager:info("missing 'zfs' in PATH"),
             error(missing_zfs);
         ZfsBin ->
-            ListPort = erlang:open_port({spawn_executable, ZfsBin},
-                [exit_status, {args, ["list", "-H", Snapshot]}]),
+            ListPort = add_sudo_if_needed(ZfsBin, ["list", "-H", Snapshot], Config),
             case wait_for_port(ListPort, true) of
                 {ok, 0} ->
                     % zfs snapshot already exists
                     ok;
                 {ok, _C} ->
-                    % create the zfs snapshot (does not require sudo)
                     lager:info("creating zfs snapshot ~s", [Snapshot]),
                     SnapArgs = ["snapshot", "-o", "com.sun:auto-snapshot=false", Snapshot],
-                    SnapPort = case proplists:get_bool(use_sudo, Config) of
-                        false ->
-                            erlang:open_port({spawn_executable, ZfsBin},
-                                [exit_status, {args, SnapArgs}]);
-                        true ->
-                            case os:find_executable("sudo") of
-                                false ->
-                                    lager:info("missing 'sudo' in PATH"),
-                                    error(missing_sudo);
-                                SudoBin ->
-                                    erlang:open_port({spawn_executable, SudoBin},
-                                        [exit_status, {args, [ZfsBin] ++ SnapArgs}])
-                            end
-                    end,
+                    SnapPort = add_sudo_if_needed(ZfsBin, SnapArgs, Config),
                     {ok, 0} = wait_for_port(SnapPort),
                     lager:info("zfs snapshot ~s created", [Snapshot])
             end,
@@ -151,8 +136,7 @@ ensure_clone_exists(Clone, Snapshot, Config) ->
             lager:info("missing 'zfs' in PATH"),
             error(missing_zfs);
         ZfsBin ->
-            ListPort = erlang:open_port({spawn_executable, ZfsBin},
-                [exit_status, {args, ["list", "-H", Clone]}]),
+            ListPort = add_sudo_if_needed(ZfsBin, ["list", "-H", Clone], Config),
             case wait_for_port(ListPort, true) of
                 {ok, 0} ->
                     % zfs clone already exists
@@ -167,21 +151,7 @@ ensure_clone_exists(Clone, Snapshot, Config) ->
                         Snapshot,
                         Clone
                     ],
-                    % creating a clone may require sudo
-                    ClonePort = case proplists:get_bool(use_sudo, Config) of
-                        false ->
-                            erlang:open_port({spawn_executable, ZfsBin},
-                                [exit_status, {args, CloneArgs}]);
-                        true ->
-                            case os:find_executable("sudo") of
-                                false ->
-                                    lager:info("missing 'sudo' in PATH"),
-                                    error(missing_sudo);
-                                SudoBin ->
-                                    erlang:open_port({spawn_executable, SudoBin},
-                                        [exit_status, {args, [ZfsBin] ++ CloneArgs}])
-                            end
-                    end,
+                    ClonePort = add_sudo_if_needed(ZfsBin, CloneArgs, Config),
                     {ok, 0} = wait_for_port(ClonePort),
                     lager:info("zfs clone ~s created", [Clone]),
                     ok
@@ -198,20 +168,7 @@ destroy_dataset(Dataset, Config) ->
         ZfsBin ->
             % destroying a dataset may require sudo
             ZfsArgs = ["destroy", Dataset],
-            ZfsPort = case proplists:get_bool(use_sudo, Config) of
-                false ->
-                    erlang:open_port({spawn_executable, ZfsBin},
-                        [exit_status, {args, ZfsArgs}]);
-                true ->
-                    case os:find_executable("sudo") of
-                        false ->
-                            lager:info("missing 'sudo' in PATH"),
-                            error(missing_sudo);
-                        SudoBin ->
-                            erlang:open_port({spawn_executable, SudoBin},
-                                [exit_status, {args, [ZfsBin] ++ ZfsArgs}])
-                    end
-            end,
+            ZfsPort = add_sudo_if_needed(ZfsBin, ZfsArgs, Config),
             {ok, 0} = wait_for_port(ZfsPort),
             lager:info("zfs destroy ~s successful", [Dataset]),
             ok
@@ -355,4 +312,21 @@ ensure_port_closed(Port) ->
     case erlang:port_info(Port) of
         undefined -> ok;
         _         -> erlang:port_close(Port)
+    end.
+
+% Opens a port to 'spawn_executable' the given Cmd (plus Args), adding
+% 'sudo' if needed, based on the Config. Returns the opened port.
+add_sudo_if_needed(Cmd, Args, Config) ->
+    case proplists:get_bool(use_sudo, Config) of
+        false ->
+            erlang:open_port({spawn_executable, Cmd}, [exit_status, {args, Args}]);
+        true ->
+            case os:find_executable("sudo") of
+                false ->
+                    lager:info("missing 'sudo' in PATH"),
+                    error(missing_sudo);
+                SudoBin ->
+                    erlang:open_port({spawn_executable, SudoBin},
+                        [exit_status, {args, [Cmd] ++ Args}])
+            end
     end.

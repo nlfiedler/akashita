@@ -22,7 +22,7 @@ $ rebar ct
 
 ### Vagrant VMs
 
-There are virtual machine definitions, managed using [Vagrant](https://www.vagrantup.com) and provisioned using [Fabric](http://www.fabfile.org), that are available for building and testing on [FreeBSD](https://www.freebsd.org) and [Ubuntu](http://www.ubuntu.com). These are found in the `vagrant` directory. The Linux VM is only good for building and testing manually, as the automated tests make use of `mkfile` to produce temporary ZFS datasets.
+There are virtual machine definitions, managed using [Vagrant](https://www.vagrantup.com) and provisioned using [Fabric](http://www.fabfile.org), that are available for building and testing on [FreeBSD](https://www.freebsd.org) and [Ubuntu](http://www.ubuntu.com). These are found in the `vagrant` directory.
 
 ## Usage
 
