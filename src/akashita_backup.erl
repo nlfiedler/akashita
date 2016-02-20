@@ -95,8 +95,8 @@ process_uploads(State) ->
                     process_uploads(#state{vault=NextVault})
             end;
         false ->
-            {ok, _TRef} = fire_later(),
-            State
+            {ok, TRef} = fire_later(),
+            State#state{timer=TRef}
     end.
 
 % Process a single archive in the given Vault. If this vault is now
@@ -115,6 +115,7 @@ process_one_archive(Vault) ->
     ok = akashita:ensure_clone_exists(CloneName, Snapshot, AppConfig),
     ok = akashita:ensure_vault_created(Vault),
     ArchiveDir = akashita:ensure_archives(Vault, Tag, AppConfig),
+    lager:info("archive dir: ~s", [ArchiveDir]),
     case file:list_dir(ArchiveDir) of
         {ok, []} ->
             % this should not have happened

@@ -3,7 +3,7 @@
 %
 % If a file named user_env.config exists at the base of the application
 % tree, then it will be used to override settings in the application
-% environment. For example, if that file contained the following line:
+% environment. For example, if that file contained the following lines:
 %
 % {use_sudo, true},
 % {tmpdir, "/tmp"},

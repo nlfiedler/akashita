@@ -28,6 +28,7 @@
 -include_lib("kernel/include/file.hrl").
 
 -define(SPLIT_SIZE, 262144).
+-define(DEFAULT_EXCLUDES, [".VolumeIcon.icns", ".fseventsd"]).
 
 init_per_suite(Config) ->
     % ensure lager is configured for testing
@@ -44,13 +45,14 @@ end_per_suite(_Config) ->
 
 all() ->
     [
-        is_go_time_test,
-        ensure_archives_test,
-        ensure_snapshot_exists_test,
-        ensure_clone_exists_test,
-        destroy_dataset_test,
-        retrieve_tag_test,
-        vault_completed_test,
+    % TODO
+        % is_go_time_test,
+        % ensure_archives_test,
+        % ensure_snapshot_exists_test,
+        % ensure_clone_exists_test,
+        % destroy_dataset_test,
+        % retrieve_tag_test,
+        % vault_completed_test,
         process_uploads_test
     ].
 
@@ -281,29 +283,50 @@ process_uploads_test(Config) ->
             % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind
             ct:log(os:cmd("sudo zpool create panzer " ++ FSFile)),
             ct:log(os:cmd("sudo zfs create panzer/shared")),
+            ct:log(os:cmd("sudo chmod 777 /panzer/shared")),
+            ct:log(os:cmd("sudo zfs create panzer/photos")),
+            ct:log(os:cmd("sudo chmod 777 /panzer/photos")),
             Cwd = os:getenv("PWD"),
             % copy everything except the logs which contains our 64MB file
-            ct:log(os:cmd("sudo rsync --exclude logs -r " ++ Cwd ++ "/* /panzer/shared")),
+            % (and priv contains the giant Go binary)
+            ct:log(os:cmd("rsync --exclude=logs --exclude=priv -r " ++ Cwd ++ "/* /panzer/shared")),
+            % copy something to the photos "vault", that will result in a single archive
+            {ok, _BC} = file:copy(filename:join(Cwd, "test/akashita_SUITE.erl"),
+                "/panzer/photos/akashita_SUITE.erl"),
             BackupLog = filename:join(PrivDir, "backup.log"),
             % set up the application environment to backup our data
             ok = application:set_env(akashita, test_log, BackupLog),
-            ok = application:set_env(akashita, use_sudo, true),
-            ok = application:set_env(akashita, go_times, ["00:00-23:59"]),
-            ok = application:set_env(akashita, tmpdir, PrivDir),
-            ok = application:set_env(akashita, split_size, "256K"),
-            % ignore the bothersome special directory
-            ok = application:set_env(akashita, default_excludes, [".fseventsd"]),
+            % (use {persistent, true} to override the defaults in app.src)
+            ok = application:set_env(akashita, use_sudo, true, [{persistent, true}]),
+            % test in which nothing will happen because it's not the right time
+            ok = application:set_env(akashita, go_times, ["23:59-00:00"]),
+            ok = application:set_env(akashita, tmpdir, PrivDir, [{persistent, true}]),
+            ok = application:set_env(akashita, split_size, "256K", [{persistent, true}]),
+            % ignore the bothersome special directories and files
+            ok = application:set_env(akashita, default_excludes, ?DEFAULT_EXCLUDES),
             VaultsConf = [
                 {"shared", [
                     {dataset, "panzer/shared"},
                     {clone_base, "panzer/glacier"},
                     {paths, ["."]},
                     {compressed, false}
+                ]},
+                {"photos", [
+                    {dataset, "panzer/photos"},
+                    {clone_base, "panzer/glacier"},
+                    {paths, ["."]},
+                    {compressed, true}
                 ]}
             ],
             ok = application:set_env(akashita, vaults, VaultsConf),
             % fire up the application and wait for it to finish
             {ok, _Started} = application:ensure_all_started(akashita),
+            ok = gen_server:call(akashita_backup, begin_backup, infinity),
+            % verify nothing happened (because of go_times)
+            {error, Reason} = file:read_file_info(BackupLog),
+            ?assertEqual(enoent, Reason),
+            % correct the time and try again, this time something should happen
+            ok = application:set_env(akashita, go_times, ["00:00-23:59"]),
             ok = gen_server:call(akashita_backup, begin_backup, infinity),
             % examine the log file to ensure it created a vault and uploaded archives
             {ok, BackupBin} = file:read_file(BackupLog),
@@ -315,6 +338,9 @@ process_uploads_test(Config) ->
             ?assert(string:str(BackupText, "shared00006 uploaded") > 0),
             ?assert(string:str(BackupText, "shared00008 uploaded") > 0),
             ?assert(string:str(BackupText, "shared00010 uploaded") > 0),
+            ?assert(string:str(BackupText, "vault photos created") > 0),
+            ?assert(string:str(BackupText, "photos00000 uploaded") > 0),
+            ?assert(string:str(BackupText, "photos00001 uploaded") == 0),
             ct:log(os:cmd("sudo zpool destroy panzer")),
             ok = file:delete(FSFile)
     end.
