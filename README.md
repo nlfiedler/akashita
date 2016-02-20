@@ -14,6 +14,8 @@
 To download the dependencies and build the application, use `rebar` as follows:
 
 ```
+$ go get github.com/nlfiedler/akashita
+$ cd $GOPATH/src/github.com/nlfiedler/akashita
 $ rebar compile
 $ rebar ct
 ```
