@@ -67,7 +67,7 @@ ensure_vault_created(Vault) ->
         undefined ->
             {ok, Region} = application:get_env(akashita, aws_region),
             Env = [{"AWS_REGION", Region}],
-            PrivPath = code:priv_dir(akashita_backup),
+            PrivPath = code:priv_dir(akashita),
             Cmd = filename:join(PrivPath, "klutlan"),
             Args = ["-create", "-vault", Vault],
             Port = erlang:open_port({spawn_executable, Cmd},
@@ -88,7 +88,7 @@ upload_archive(Archive, Desc, Vault) ->
         undefined ->
             {ok, Region} = application:get_env(akashita, aws_region),
             Env = [{"AWS_REGION", Region}],
-            PrivPath = code:priv_dir(akashita_backup),
+            PrivPath = code:priv_dir(akashita),
             Cmd = filename:join(PrivPath, "klutlan"),
             Args = ["-upload", Archive, "-desc", Desc, "-vault", Vault],
             Port = erlang:open_port({spawn_executable, Cmd},
