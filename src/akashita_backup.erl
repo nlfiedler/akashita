@@ -81,12 +81,14 @@ process_uploads(State) ->
     case akashita:is_go_time(GoTimes, Hour, Min) of
         true ->
             Vault = State#state.vault,
+            lager:info("processing vault: ~s", [Vault]),
             NextVault = case process_one_archive(Vault) of
                 true -> next_eligible_vault();
                 false -> Vault
             end,
             case is_backup_complete() of
                 true ->
+                    lager:info("backup complete"),
                     % The server will now enter a period of rest until the
                     % next time it is asked to begin a new backup.
                     ok = akashita_app:delete_cache(),
@@ -95,6 +97,7 @@ process_uploads(State) ->
                     process_uploads(#state{vault=NextVault})
             end;
         false ->
+            lager:info("not time to upload, sleeping..."),
             {ok, TRef} = fire_later(),
             State#state{timer=TRef}
     end.
