@@ -110,7 +110,7 @@ process_one_archive(Vault) ->
     VaultList = proplists:get_value(vaults, AppConfig),
     VaultConf = proplists:get_value(Vault, VaultList),
     Dataset = proplists:get_value(dataset, VaultConf),
-    {ok, Snapshot} = akashita:ensure_snapshot_exists(Tag, Dataset),
+    {ok, Snapshot} = akashita:ensure_snapshot_exists(Tag, Dataset, AppConfig),
     CloneName = proplists:get_value(clone_base, VaultConf),
     ok = akashita:ensure_clone_exists(CloneName, Snapshot, AppConfig),
     ok = akashita:ensure_vault_created(Vault),

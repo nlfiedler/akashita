@@ -25,7 +25,7 @@
 
 -export([is_go_time/3]).
 -export([ensure_archives/3]).
--export([ensure_clone_exists/3, ensure_snapshot_exists/2]).
+-export([ensure_clone_exists/3, ensure_snapshot_exists/3]).
 -export([destroy_dataset/2]).
 -export([ensure_vault_created/1, upload_archive/3]).
 
@@ -107,7 +107,7 @@ upload_archive(Archive, Desc, Vault) ->
 % Create the ZFS snapshot, if it is missing, where Name is the snapshot
 % name, and Dataset is the name of the zfs dataset for which a snapshot
 % will be created. Returns {ok, SnapshotName} on success.
-ensure_snapshot_exists(Name, Dataset) ->
+ensure_snapshot_exists(Name, Dataset, Config) ->
     Snapshot = io_lib:format("~s@glacier:~s", [Dataset, Name]),
     case os:find_executable("zfs") of
         false ->
@@ -124,8 +124,20 @@ ensure_snapshot_exists(Name, Dataset) ->
                     % create the zfs snapshot (does not require sudo)
                     lager:info("creating zfs snapshot ~s", [Snapshot]),
                     SnapArgs = ["snapshot", "-o", "com.sun:auto-snapshot=false", Snapshot],
-                    SnapPort = erlang:open_port({spawn_executable, ZfsBin},
-                        [exit_status, {args, SnapArgs}]),
+                    SnapPort = case proplists:get_bool(use_sudo, Config) of
+                        false ->
+                            erlang:open_port({spawn_executable, ZfsBin},
+                                [exit_status, {args, SnapArgs}]);
+                        true ->
+                            case os:find_executable("sudo") of
+                                false ->
+                                    lager:info("missing 'sudo' in PATH"),
+                                    error(missing_sudo);
+                                SudoBin ->
+                                    erlang:open_port({spawn_executable, SudoBin},
+                                        [exit_status, {args, [ZfsBin] ++ SnapArgs}])
+                            end
+                    end,
                     {ok, 0} = wait_for_port(SnapPort),
                     lager:info("zfs snapshot ~s created", [Snapshot])
             end,

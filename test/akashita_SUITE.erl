@@ -45,14 +45,13 @@ end_per_suite(_Config) ->
 
 all() ->
     [
-    % TODO
-        % is_go_time_test,
-        % ensure_archives_test,
-        % ensure_snapshot_exists_test,
-        % ensure_clone_exists_test,
-        % destroy_dataset_test,
-        % retrieve_tag_test,
-        % vault_completed_test,
+        is_go_time_test,
+        ensure_archives_test,
+        ensure_snapshot_exists_test,
+        ensure_clone_exists_test,
+        destroy_dataset_test,
+        retrieve_tag_test,
+        vault_completed_test,
         process_uploads_test
     ].
 
@@ -162,12 +161,13 @@ ensure_snapshot_exists_test(Config) ->
             os:cmd("mkfile 64m " ++ FSFile),
             % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind
             os:cmd("sudo zpool create panzer " ++ FSFile),
-            {ok, Snapshot} = akashita:ensure_snapshot_exists("10-14-2005", "panzer"),
+            AppConfig = [{use_sudo, true}],
+            {ok, Snapshot} = akashita:ensure_snapshot_exists("10-14-2005", "panzer", AppConfig),
             Snapshots = os:cmd("zfs list -H -r -t snapshot panzer@glacier:10-14-2005"),
             [DatasetName|_Rest] = re:split(Snapshots, "\t", [{return, list}]),
             ?assertEqual("panzer@glacier:10-14-2005", DatasetName),
             % do it again to make sure it does not crash, and returns the same name
-            {ok, Snapshot} = akashita:ensure_snapshot_exists("10-14-2005", "panzer"),
+            {ok, Snapshot} = akashita:ensure_snapshot_exists("10-14-2005", "panzer", AppConfig),
             os:cmd("sudo zpool destroy panzer"),
             ok = file:delete(FSFile)
     end.
