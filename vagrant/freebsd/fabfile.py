@@ -41,5 +41,6 @@ def all():
     sudo("pkg install -q -y go")
     sudo("pkg install -q -y rebar")
     sudo("pkg install -q -y mkfile")
+    sudo("pkg install -q -y rsync")
     run('mkdir gocode')
     run("echo 'setenv GOPATH ~/gocode' >> .cshrc")
