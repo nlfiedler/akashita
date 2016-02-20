@@ -13,12 +13,18 @@
 
 To download the dependencies and build the application, use `rebar` as follows:
 
-```
+```shell
 $ go get github.com/nlfiedler/akashita
 $ cd $GOPATH/src/github.com/nlfiedler/akashita
 $ rebar compile
 $ rebar ct
 ```
+
+### Tested Systems
+
+* FreeBSD 10.x
+* Mac OS X 10.x
+* Ubuntu Linux 14.04
 
 ### Vagrant VMs
 
@@ -26,15 +32,27 @@ There are virtual machine definitions, managed using [Vagrant](https://www.vagra
 
 ## Usage
 
-### Running
+### AWS Configuration
 
-The process is typically run as a background process, initiated using the `at` command. The advantage of using `at` is that it will send an email when the process terminates, which can be helpful to know if the process ended prematurely. The advantage to using `sudo` is that the process will have permission to create and destroy ZFS datasets, which is part of the normal backup procedure.
+The Amazon Web Services credentials and region will need to be configured, as described at [AWS SDK for Go](https://aws.amazon.com/sdk-for-go/), under **Getting Started**. This is typically done by putting the credentials in `~/.aws/credentials` and setting the region in the `AWS_REGION` environment variable. Alternatively, the region can be set in the akashita configuration file (see `docs/example.config`).
 
+### Deploying
+
+1. Write a configuration file, named `user_env.config`, at the base of the source tree.
+    * See `example.config` in the `docs` directory.
+1. Build the release: `make release`
+1. Copy the contents of `_rel` to the desired installation location (e.g. `/opt`).
+1. Start it up, likely using `sudo`.
+1. Occasionally check the log files in `/opt/akashita/log`.
+
+For example:
+
+```shell
+$ cp ~/akashita.config user_env.config
+$ make release
+$ sudo rm -rf /opt/akashita
+$ sudo cp -R _rel/akashita /opt
+$ sudo /opt/akashita/bin/akashita -detached
 ```
-$ echo '/usr/local/bin/akashita' > job
-$ sudo at -m -f job now
-```
 
-### Configuration
-
-The Amazon Web Services credentials and region will need to be configured, as described at [AWS SDK for Go](https://aws.amazon.com/sdk-for-go/), under **Getting Started**. This is typically done by putting the credentials in `~/.aws/credentials` and setting the region in the `AWS_REGION` environment variable.
+Yes, an RC style script is planned.
