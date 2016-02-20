@@ -65,10 +65,13 @@ is_go_time(Windows, Hour, Minute)
 ensure_vault_created(Vault) ->
     case application:get_env(akashita, test_log) of
         undefined ->
+            {ok, Region} = application:get_env(akashita, aws_region),
+            Env = [{"AWS_REGION", Region}],
             PrivPath = code:priv_dir(akashita_backup),
             Cmd = filename:join(PrivPath, "klutlan"),
             Args = ["-create", "-vault", Vault],
-            Port = erlang:open_port({spawn_executable, Cmd}, [exit_status, {args, Args}]),
+            Port = erlang:open_port({spawn_executable, Cmd},
+                [exit_status, {args, Args}, {env, Env}]),
             {ok, 0} = wait_for_port(Port),
             ok;
         {ok, LogFile} ->
@@ -83,10 +86,13 @@ ensure_vault_created(Vault) ->
 upload_archive(Archive, Desc, Vault) ->
     case application:get_env(akashita, test_log) of
         undefined ->
+            {ok, Region} = application:get_env(akashita, aws_region),
+            Env = [{"AWS_REGION", Region}],
             PrivPath = code:priv_dir(akashita_backup),
             Cmd = filename:join(PrivPath, "klutlan"),
             Args = ["-upload", Archive, "-desc", Desc, "-vault", Vault],
-            Port = erlang:open_port({spawn_executable, Cmd}, [exit_status, {args, Args}]),
+            Port = erlang:open_port({spawn_executable, Cmd},
+                [exit_status, {args, Args}, {env, Env}]),
             case wait_for_port(Port) of
                 {ok, 0} -> ok;
                 {ok, _C} ->
