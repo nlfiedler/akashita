@@ -163,7 +163,7 @@ ensure_snapshot_exists_test(Config) ->
             os:cmd("sudo zpool create panzer " ++ FSFile),
             AppConfig = [{use_sudo, true}],
             {ok, Snapshot} = akashita:ensure_snapshot_exists("10-14-2005", "panzer", AppConfig),
-            Snapshots = os:cmd("zfs list -H -r -t snapshot panzer@glacier:10-14-2005"),
+            Snapshots = os:cmd("sudo zfs list -H -r -t snapshot panzer@glacier:10-14-2005"),
             [DatasetName|_Rest] = re:split(Snapshots, "\t", [{return, list}]),
             ?assertEqual("panzer@glacier:10-14-2005", DatasetName),
             % do it again to make sure it does not crash, and returns the same name
@@ -205,11 +205,11 @@ ensure_clone_exists_test(Config) ->
             ct:log(os:cmd("mkfile 64m " ++ FSFile)),
             % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind
             ct:log(os:cmd("sudo zpool create panzer " ++ FSFile)),
-            ct:log(os:cmd("zfs snapshot panzer@glacier:10-14-2005")),
+            ct:log(os:cmd("sudo zfs snapshot panzer@glacier:10-14-2005")),
             AppConfig = [{use_sudo, true}],
             ok = akashita:ensure_clone_exists(
                 "panzer/parts", "panzer@glacier:10-14-2005", AppConfig),
-            Datasets = os:cmd("zfs list"),
+            Datasets = os:cmd("sudo zfs list"),
             ct:log(default, 50, "datasets: ~s", [Datasets]),
             ?assert(string:str(Datasets, "panzer/parts") > 0),
             % do it again to make sure it does not crash
@@ -231,10 +231,10 @@ destroy_dataset_test(Config) ->
             ct:log(os:cmd("mkfile 64m " ++ FSFile)),
             % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind
             ct:log(os:cmd("sudo zpool create panzer " ++ FSFile)),
-            ct:log(os:cmd("zfs snapshot panzer@glacier:10-14-2005")),
+            ct:log(os:cmd("sudo zfs snapshot panzer@glacier:10-14-2005")),
             AppConfig = [{use_sudo, true}],
             ok = akashita:destroy_dataset("panzer@glacier:10-14-2005", AppConfig),
-            Datasets = os:cmd("zfs list"),
+            Datasets = os:cmd("sudo zfs list"),
             ct:log(default, 50, "datasets: ~s", [Datasets]),
             ?assertEqual(0, string:str(Datasets, "panzer@glacier:10-14-2005")),
             ct:log(os:cmd("sudo zpool destroy panzer")),
