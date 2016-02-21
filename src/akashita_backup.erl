@@ -50,9 +50,7 @@ handle_call(begin_backup, _From, State) ->
         TRef -> {ok, cancel} = timer:cancel(TRef)
     end,
     NewState = process_uploads(State),
-    {reply, ok, NewState};
-handle_call(terminate, _From, State) ->
-    {stop, normal, ok, State}.
+    {reply, ok, NewState}.
 
 handle_cast(process, State) ->
     NewState = process_uploads(State),
