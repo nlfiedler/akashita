@@ -331,16 +331,26 @@ process_uploads_test(Config) ->
             % examine the log file to ensure it created a vault and uploaded archives
             {ok, BackupBin} = file:read_file(BackupLog),
             BackupText = binary_to_list(BackupBin),
-            ?assert(string:str(BackupText, "vault shared created") > 0),
-            ?assert(string:str(BackupText, "shared00000 uploaded") > 0),
-            ?assert(string:str(BackupText, "shared00002 uploaded") > 0),
-            ?assert(string:str(BackupText, "shared00004 uploaded") > 0),
-            ?assert(string:str(BackupText, "shared00006 uploaded") > 0),
-            ?assert(string:str(BackupText, "shared00008 uploaded") > 0),
-            ?assert(string:str(BackupText, "shared00010 uploaded") > 0),
-            ?assert(string:str(BackupText, "vault photos created") > 0),
-            ?assert(string:str(BackupText, "photos00000 uploaded") > 0),
-            ?assert(string:str(BackupText, "photos00001 uploaded") == 0),
+            Tag = akashita_app:retrieve_tag(),
+            % check for the vaults..
+            VaultNames = proplists:get_keys(VaultsConf),
+            VaultTags = [Name ++ "-" ++ Tag || Name <- VaultNames],
+            FindVaultsCreated = fun(VaultTag) ->
+                E = lists:flatten(io_lib:format("vault ~s created", [VaultTag])),
+                ?assert(string:str(BackupText, E) > 0)
+            end,
+            lists:foreach(FindVaultsCreated, VaultTags),
+            % check for the archives ...
+            SharedArchives = [lists:flatten(io_lib:format("shared~5.10.0B", [I])) || I <- lists:seq(1, 10)],
+            SharedTag = "shared-" ++ Tag,
+            FindArchivesUploaded = fun(ArchiveName) ->
+                E = lists:flatten(io_lib:format("~s uploaded to ~s", [ArchiveName, SharedTag])),
+                ?assert(string:str(BackupText, E) > 0)
+            end,
+            lists:foreach(FindArchivesUploaded, SharedArchives),
+            % check that only one photos archive was uploaded
+            ?assertEqual(0, string:str(BackupText, lists:flatten(
+                io_lib:format("photos00001 uploaded to photos-~s", [Tag])))),
             ?assertCmd("sudo zpool destroy panzer"),
             ok = file:delete(FSFile)
     end.

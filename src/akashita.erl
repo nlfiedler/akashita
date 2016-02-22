@@ -61,15 +61,15 @@ is_go_time(Windows, Hour, Minute)
     end,
     lists:any(InWindow, Windows).
 
-% Ensure the named Vault has been created.
-ensure_vault_created(Vault) ->
+% Ensure the named vault has been created.
+ensure_vault_created(VaultTag) ->
     case application:get_env(akashita, test_log) of
         undefined ->
             {ok, Region} = application:get_env(akashita, aws_region),
             Env = [{"AWS_REGION", Region}],
             PrivPath = code:priv_dir(akashita),
             Cmd = filename:join(PrivPath, "klutlan"),
-            Args = ["-create", "-vault", Vault],
+            Args = ["-create", "-vault", VaultTag],
             Port = erlang:open_port({spawn_executable, Cmd},
                 [exit_status, {args, Args}, {env, Env}]),
             {ok, 0} = wait_for_port(Port),
@@ -77,27 +77,27 @@ ensure_vault_created(Vault) ->
         {ok, LogFile} ->
             % in test mode, write to a log file
             {ok, IoDevice} = file:open(LogFile, [append]),
-            Record = io_lib:format("vault ~s created\n", [Vault]),
+            Record = io_lib:format("vault ~s created\n", [VaultTag]),
             ok = file:write(IoDevice, list_to_binary(Record)),
             ok = file:close(IoDevice)
     end.
 
-% Upload a single archive file, retrying as needed.
-upload_archive(Archive, Desc, Vault) ->
+% Upload a single archive file to the named vault, retrying as needed.
+upload_archive(Archive, Desc, VaultTag) ->
     case application:get_env(akashita, test_log) of
         undefined ->
             {ok, Region} = application:get_env(akashita, aws_region),
             Env = [{"AWS_REGION", Region}],
             PrivPath = code:priv_dir(akashita),
             Cmd = filename:join(PrivPath, "klutlan"),
-            Args = ["-upload", Archive, "-desc", Desc, "-vault", Vault],
+            Args = ["-upload", Archive, "-desc", Desc, "-vault", VaultTag],
             Port = erlang:open_port({spawn_executable, Cmd},
                 [exit_status, {args, Args}, {env, Env}]),
             case wait_for_port(Port) of
                 {ok, 0} -> ok;
                 {ok, _C} ->
                     % keep trying until it works or we get an error
-                    upload_archive(Archive, Desc, Vault);
+                    upload_archive(Archive, Desc, VaultTag);
                 {error, Reason} ->
                     lager:error("upload archive ~s failed, ~s", [Archive, Reason]),
                     error(Reason)
@@ -105,7 +105,7 @@ upload_archive(Archive, Desc, Vault) ->
         {ok, LogFile} ->
             % in test mode, write to a log file
             {ok, IoDevice} = file:open(LogFile, [append]),
-            Record = io_lib:format("archive ~s uploaded\n", [Archive]),
+            Record = io_lib:format("archive ~s uploaded to ~s\n", [Archive, VaultTag]),
             ok = file:write(IoDevice, list_to_binary(Record)),
             ok = file:close(IoDevice)
     end.
@@ -186,7 +186,7 @@ destroy_dataset(Dataset, Config) ->
 % the path of the generated archives.
 ensure_archives(Vault, Tag, Config) ->
     WorkDir = proplists:get_value(tmpdir, Config),
-    ArchiveDir = filename:join(WorkDir, io_lib:format("~s-~s", [Vault, Tag])),
+    ArchiveDir = filename:join(WorkDir, Vault ++ "-" ++ Tag),
     CreateArchives = fun() ->
         VaultList = proplists:get_value(vaults, Config),
         VaultConf = proplists:get_value(Vault, VaultList),
