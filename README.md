@@ -55,4 +55,6 @@ $ sudo cp -R _rel/akashita /opt
 $ sudo /opt/akashita/bin/akashita -detached
 ```
 
-Yes, an RC style script is planned.
+### BSD daemon
+
+See the `config/akashita.rc` file for an example of managing the akashita application as a daemon via `rc.d` in BSD systems (in particular FreeBSD, and likely NetBSD as well). You will need to build and deploy the application as described above, and then use the `service` command to start it, as illustrated in `akashita.rc`.
