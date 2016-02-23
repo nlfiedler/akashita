@@ -28,7 +28,7 @@
 -include_lib("kernel/include/file.hrl").
 
 -define(SPLIT_SIZE, 262144).
--define(DEFAULT_EXCLUDES, [".VolumeIcon.icns", ".fseventsd"]).
+-define(DEFAULT_EXCLUDES, [".VolumeIcon.icns", ".fseventsd", ".Trashes"]).
 
 init_per_suite(Config) ->
     % ensure lager is configured for testing
@@ -280,8 +280,9 @@ process_uploads_test(Config) ->
             PrivDir = ?config(priv_dir, Config),
             FSFile = filename:join(PrivDir, "tank_file"),
             mkfile(FSFile),
-            % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind
-            ?assertCmd("sudo zpool create panzer " ++ FSFile),
+            % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind.
+            % Specify a mount point to avoid unexpected defaults (e.g. ZFS on Mac).
+            ?assertCmd("sudo zpool create -m /panzer panzer " ++ FSFile),
             ?assertCmd("sudo zfs create panzer/shared"),
             ?assertCmd("sudo chmod 777 /panzer/shared"),
             ?assertCmd("sudo zfs create panzer/photos"),
