@@ -297,14 +297,14 @@ process_uploads_test(Config) ->
             BackupLog = filename:join(PrivDir, "backup.log"),
             % set up the application environment to backup our data
             ok = application:set_env(akashita, test_log, BackupLog),
-            % (use {persistent, true} to override the defaults in app.src)
+            % (use {persistent, true} to override the defaults and user overrides)
             ok = application:set_env(akashita, use_sudo, true, [{persistent, true}]),
             % test in which nothing will happen because it's not the right time
-            ok = application:set_env(akashita, go_times, ["23:59-00:00"]),
+            ok = application:set_env(akashita, go_times, ["23:59-00:00"], [{persistent, true}]),
             ok = application:set_env(akashita, tmpdir, PrivDir, [{persistent, true}]),
             ok = application:set_env(akashita, split_size, "256K", [{persistent, true}]),
             % ignore the bothersome special directories and files
-            ok = application:set_env(akashita, default_excludes, ?DEFAULT_EXCLUDES),
+            ok = application:set_env(akashita, default_excludes, ?DEFAULT_EXCLUDES, [{persistent, true}]),
             VaultsConf = [
                 {"shared", [
                     {dataset, "panzer/shared"},
@@ -319,7 +319,7 @@ process_uploads_test(Config) ->
                     {compressed, true}
                 ]}
             ],
-            ok = application:set_env(akashita, vaults, VaultsConf),
+            ok = application:set_env(akashita, vaults, VaultsConf, [{persistent, true}]),
             % fire up the application and wait for it to finish
             {ok, _Started} = application:ensure_all_started(akashita),
             ok = gen_server:call(akashita_backup, begin_backup, infinity),
@@ -327,7 +327,7 @@ process_uploads_test(Config) ->
             {error, Reason} = file:read_file_info(BackupLog),
             ?assertEqual(enoent, Reason),
             % correct the time and try again, this time something should happen
-            ok = application:set_env(akashita, go_times, ["00:00-23:59"]),
+            ok = application:set_env(akashita, go_times, ["00:00-23:59"], [{persistent, true}]),
             ok = gen_server:call(akashita_backup, begin_backup, infinity),
             % examine the log file to ensure it created a vault and uploaded archives
             {ok, BackupBin} = file:read_file(BackupLog),
