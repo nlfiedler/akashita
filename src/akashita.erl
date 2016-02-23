@@ -65,8 +65,10 @@ is_go_time(Windows, Hour, Minute)
 ensure_vault_created(VaultTag) ->
     case application:get_env(akashita, test_log) of
         undefined ->
-            {ok, Region} = application:get_env(akashita, aws_region),
-            Env = [{"AWS_REGION", Region}],
+            Env = case application:get_env(akashita, aws_region) of
+                undefined -> [];
+                {ok, Region} -> [{"AWS_REGION", Region}]
+            end,
             PrivPath = code:priv_dir(akashita),
             Cmd = filename:join(PrivPath, "klutlan"),
             Args = ["-create", "-vault", VaultTag],
@@ -86,8 +88,10 @@ ensure_vault_created(VaultTag) ->
 upload_archive(Archive, Desc, VaultTag) ->
     case application:get_env(akashita, test_log) of
         undefined ->
-            {ok, Region} = application:get_env(akashita, aws_region),
-            Env = [{"AWS_REGION", Region}],
+            Env = case application:get_env(akashita, aws_region) of
+                undefined -> [];
+                {ok, Region} -> [{"AWS_REGION", Region}]
+            end,
             PrivPath = code:priv_dir(akashita),
             Cmd = filename:join(PrivPath, "klutlan"),
             Args = ["-upload", Archive, "-desc", Desc, "-vault", VaultTag],
