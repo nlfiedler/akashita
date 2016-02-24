@@ -13,7 +13,6 @@
 % the default envionment below.
 %
 DefaultEnv = [
-    {use_sudo, true},
     {tmpdir, "/tmp"},
     {split_size, "256K"}
 ].
