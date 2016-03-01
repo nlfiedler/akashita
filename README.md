@@ -50,7 +50,7 @@ For example:
 ```shell
 $ cp ~/akashita.config user_env.config
 $ make release
-$ sudo rm -rf /opt/akashita
+$ sudo mkdir -p /opt
 $ sudo cp -R _rel/akashita /opt
 $ sudo /opt/akashita/bin/akashita -detached
 ```
@@ -58,3 +58,27 @@ $ sudo /opt/akashita/bin/akashita -detached
 ### BSD daemon
 
 See the `config/akashita.rc` file for an example of managing the akashita application as a daemon via `rc.d` in BSD systems (in particular FreeBSD, and likely NetBSD as well). You will need to build and deploy the application as described above, and then use the `service` command to start it, as illustrated in `akashita.rc`.
+
+### Triggering Backup
+
+The first time the application is started it will begin backing up as soon as it reaches the appropriate `go_time`, as defined in the configuration. Once the backup is completed (which may take several weeks depending on the amount of data being uploaded, and the amount of upload time permitted each day), the application will go to sleep. To kick off another backup, connect to the node and send a message to the server process, like so:
+
+```
+$ erl -noshell -sname fubar -eval "rpc:call('akashita@localhost', gen_server, call, [akashita_backup, begin_backup]), init:stop()."
+```
+
+## TODO
+
+### Assisted Restore
+
+* An Escript (probably) that takes a vault name and performs the following:
+    1. Request an inventory of the named vault
+    1. Wait 4 hours
+    1. Retrieve inventory, map archive IDs with descriptions (to assemble the tarball)
+    1. Request archive retrieval for each archive
+        * May need to batch the archive retrieval
+        * Consider how many can be downloaded in 24 hours
+    1. Wait 4 hours
+    1. Retrieve all of the archives
+    1. Using the description (`filename:<vault>NNNNN`), piece the archives together
+* User will then use `tar` with the appropriate flags to extract the files.
