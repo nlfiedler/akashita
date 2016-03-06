@@ -69,6 +69,19 @@ $ erl -noshell -sname fubar -eval "rpc:call('akashita@localhost', gen_server, ca
 
 ## TODO
 
+### Batch Emails
+
+* Send email when a batch of uploads has completed, with metrics
+    - Only if an email address is configured (none when testing)
+    - Can also log the stats
+    - Average upload time
+    - Number of archives uploaded
+    - Number of vaults completed
+    - Capture these in the State record, using a new Metrics record
+        + num archives
+        + num vaults
+        + total upload time
+
 ### Assisted Restore
 
 * An Escript (probably) that takes a vault name and performs the following:
