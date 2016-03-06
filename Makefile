@@ -3,6 +3,8 @@
 #
 .PHONY: deps aws precompile postclean test release
 
+VERSION = _rel/akashita/Version
+
 deps:
 	rebar get-deps
 	cd deps/lager && $(MAKE)
@@ -29,3 +31,5 @@ release: precompile
 	rebar clean
 	rebar compile
 	relx
+	@echo 'Build Date:' `date -I` > $(VERSION)
+	@echo 'HEAD Commit:' `git log --max-count=1 --pretty='%h'` >> $(VERSION)
