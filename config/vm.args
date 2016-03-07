@@ -2,4 +2,7 @@
 -noshell
 
 # for remote access & debugging
--name akashita@localhost
+-sname akashita@localhost
+
+# make sure we actually shut down when asked
+-shutdown_time 5000

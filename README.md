@@ -64,7 +64,7 @@ See the `config/akashita.rc` file for an example of managing the akashita applic
 The first time the application is started it will begin backing up as soon as it reaches the appropriate `go_time`, as defined in the configuration. Once the backup is completed (which may take several weeks depending on the amount of data being uploaded, and the amount of upload time permitted each day), the application will go to sleep. To kick off another backup, connect to the node and send a message to the server process, like so:
 
 ```
-$ erl -noshell -sname fubar -eval "rpc:call('akashita@localhost', gen_server, call, [akashita_backup, begin_backup]), init:stop()."
+$ erl -noshell -sname backup@localhost -eval "rpc:call(akashita@localhost, gen_server, call, [akashita_backup, begin_backup]), init:stop()."
 ```
 
 ## TODO

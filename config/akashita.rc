@@ -31,8 +31,8 @@ akashita_start() {
 akashita_stop() {
     # Quietly connect to the other instance and tell it to shut down. The node
     # name must match what is found in the vm.args configuration file.
-    /usr/local/bin/erl -noshell -sname stop_akashita \
-        -eval "rpc:call('akashita@localhost', init, stop, []), init:stop()."
+    /usr/local/bin/erl -noshell -sname stop_akashita@localhost \
+        -eval "rpc:call(akashita@localhost, init, stop, []), init:stop()."
 }
 
 run_rc_command "$1"
