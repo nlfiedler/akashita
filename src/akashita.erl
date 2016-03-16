@@ -310,7 +310,7 @@ wait_for_port(Port, Quiet) when is_boolean(Quiet) ->
             if Quiet -> lager:notice("output from port ignored...");
                 true -> lager:notice("received output from port: ~s", [Data])
             end,
-            wait_for_port(Port);
+            wait_for_port(Port, Quiet);
         {'EXIT', Port, Reason} ->
             lager:info("port ~w exited, ~w", [Port, Reason]),
             {error, Reason}

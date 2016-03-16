@@ -6,18 +6,16 @@
 
 * [Erlang/OTP](http://www.erlang.org) R17 or higher
 * [Go](https://golang.org) 1.5 or higher
-* [rebar](https://github.com/rebar/rebar/) for compiling and testing
-* [relx](https://github.com/erlware/relx) for building a release
+* [rebar3](https://github.com/erlang/rebar3/) 3.0.0 or higher
 
 ## Building and Testing
 
-To download the dependencies and build the application, use `rebar` as follows:
+To download the dependencies and build the application, use `rebar3` as follows:
 
 ```shell
 $ go get github.com/nlfiedler/akashita
 $ cd $GOPATH/src/github.com/nlfiedler/akashita
-$ rebar compile
-$ rebar ct
+$ rebar3 ct
 ```
 
 ### Tested Systems

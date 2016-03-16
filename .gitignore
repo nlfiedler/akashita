@@ -3,11 +3,9 @@
 *.plt
 *.pyc
 .eunit
-.rebar
 .vagrant
+_build
 akashita
-deps
-ebin
 erl_crash.dump
-logs
+rebar.lock
 user_env.config
