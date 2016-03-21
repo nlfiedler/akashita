@@ -38,7 +38,7 @@ The Amazon Web Services credentials and region will need to be configured, as de
 
 1. Write a configuration file, named `user_env.config`, at the base of the source tree.
     * See `example.config` in the `docs` directory.
-1. Build the release: `make release`
+1. Build the release: `rebar3 release`
 1. Copy the contents of `_rel` to the desired installation location (e.g. `/opt`).
 1. Start it up, likely using `sudo`.
 1. Occasionally check the log files in `/opt/akashita/log`.
@@ -47,7 +47,7 @@ For example:
 
 ```shell
 $ cp ~/akashita.config user_env.config
-$ make release
+$ rebar3 release
 $ sudo mkdir -p /opt
 $ sudo cp -R _rel/akashita /opt
 $ sudo /opt/akashita/bin/akashita -detached
