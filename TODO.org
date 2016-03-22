@@ -1,0 +1,26 @@
+* akashita TODO
+
+  ** Batch Emails
+    - [ ] Send email when a batch of uploads has completed, with metrics
+      - Only if an email address is configured (none when testing)
+      - Can also log the stats
+      - Average upload time
+      - Number of archives uploaded
+      - Number of vaults completed
+      - Capture these in the State record, using a new Metrics record
+        - num archives
+        - num vaults
+        - total upload time
+
+  ** Assisted Restore
+    - An Escript (probably) that takes a vault name and performs the following:
+      - [ ] Request an inventory of the named vault
+      - [ ] Wait 4 hours
+      - [ ] Retrieve inventory, map archive IDs with descriptions (to assemble the tarball)
+      - [ ] Request archive retrieval for each archive
+        - May need to batch the archive retrieval
+        - Consider how many can be downloaded in 24 hours
+      - [ ] Wait 4 hours
+      - [ ] Retrieve all of the archives
+      - [ ] Using the description (`filename:<vault>NNNNN`), piece the archives together
+    - User will then use `tar` with the appropriate flags to extract the files.
