@@ -124,12 +124,10 @@ process_one_archive(Vault) ->
             error(empty_archive_dir);
         {ok, [Archive|Rest]} ->
             lager:info("uploading archive: ~s", [Archive]),
-            T1 = seconds_since_epoch(),
             Desc = "filename:" ++ Archive,
             ArchivePath = filename:join(ArchiveDir, Archive),
-            ok = akashita:upload_archive(ArchivePath, Desc, VaultTag),
-            T2 = seconds_since_epoch(),
-            lager:info("archive ~s uploaded in ~.2f minutes", [Archive, (T2 - T1)/60]),
+            {Time, ok} = timer:tc(akashita, upload_archive, [ArchivePath, Desc, VaultTag]),
+            lager:info("archive ~s uploaded in ~.2f minutes", [Archive, Time / 60000000]),
             ok = file:delete(ArchivePath),
             case length(Rest) of
                 0 ->
@@ -171,8 +169,3 @@ fire_later() ->
     F = cast,
     A = [akashita_backup, process],
     timer:apply_after(1000*60*10, M, F, A).
-
-% Returns the number of seconds since the Unix epoch (1970/1/1 at midnight).
-seconds_since_epoch() ->
-    {Mega, Sec, _Micro} = os:timestamp(),
-    Mega * 1000000 + Sec.
