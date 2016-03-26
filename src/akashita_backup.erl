@@ -25,8 +25,9 @@
 -behavior(gen_server).
 -export([start_link/0]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
+-export([link_process/1, process_vault/1]).
 
--record(state, {timer, vault}).
+-record(state, {timer, vault, worker, callback}).
 
 %%
 %% Client API
@@ -39,22 +40,62 @@ start_link() ->
 %%
 init([]) ->
     Vault = next_eligible_vault(),
-    {ok, TRef} = fire_later(),
+    {ok, TRef} = start_timer(),
     State = #state{timer=TRef, vault=Vault},
     {ok, State}.
 
 handle_call(begin_backup, _From, State) ->
-    % cancel the current timer, if any
-    case State#state.timer of
-        undefined -> ok;
-        TRef -> {ok, cancel} = timer:cancel(TRef)
+    % Kick off the backup process from the beginning, assuming nothing
+    % about the current state. Does nothing if a worker is already running,
+    % which implies the current backup is not yet finished.
+    case State#state.worker of
+        undefined ->
+            cancel_timer(State#state.timer),
+            {ok, NewState} = init([]),
+            {reply, ok, NewState};
+        _Pid -> {reply, ok, State}
+    end;
+handle_call(test_backup, {FromPid, _FromTag}, State) ->
+    % Used only by the test suite, will send a message to the sender when
+    % the backup has completed.
+    State1 = case is_go_time() of
+        true ->
+            cancel_timer(State#state.timer),
+            ensure_worker(State#state{callback=FromPid, timer=undefined});
+        false ->
+            lager:info("not time to backup"),
+            State
     end,
-    NewState = process_uploads(State),
-    {reply, ok, NewState}.
+    {reply, ok, State1}.
 
-handle_cast(process, State) ->
-    NewState = process_uploads(State),
-    {noreply, NewState};
+handle_cast(get_to_work, State) ->
+    % Ensure there is a worker handling the uploads.
+    {noreply, ensure_worker(State)};
+handle_cast(completed, State) ->
+    % A vault has been completed, check if there is any additional work to
+    % be done, and start a new worker if true. Otherwise, stop the interval
+    % timer, clear the cache, and go to sleep.
+    State1 = terminate_worker(State),
+    State2 = case is_backup_complete() of
+        true ->
+            cancel_timer(State1#state.timer),
+            ok = akashita_app:delete_cache(),
+            % for the sake of the test code...
+            case State1#state.callback of
+                undefined -> ok;
+                Callback -> Callback ! backup_finished
+            end,
+            lager:info("backup complete"),
+            #state{};
+        false ->
+            lager:info("backup not yet complete"),
+            ensure_worker(State1#state{vault=next_eligible_vault()})
+    end,
+    {noreply, State2};
+handle_cast(incomplete, State) ->
+    % The worker ran out of time; clear it from the supervisor so we can
+    % start a new worker next time.
+    {noreply, terminate_worker(State)};
 handle_cast(_Msg, State) ->
     {noreply, State}.
 
@@ -69,35 +110,60 @@ code_change(_OldVsn, State, _Extra) ->
     {ok, State}.
 
 %%
-%% Private functions
+%% Business logic functions
 %%
 
-% Process the pending uploads until it is time to pause, or we are finished.
-process_uploads(State) ->
-    {ok, GoTimes} = application:get_env(akashita, go_times),
-    {{_Y, _M, _D}, {Hour,  Min, _S}} = erlang:localtime(),
-    case akashita:is_go_time(GoTimes, Hour, Min) of
+% Ensure a worker process is running, if the time to upload is now. Return
+% the updated server state, with the worker process pid.
+ensure_worker(State) ->
+    Worker = case is_go_time() of
         true ->
-            Vault = State#state.vault,
-            lager:info("processing vault: ~s", [Vault]),
-            NextVault = case process_one_archive(Vault) of
-                true -> next_eligible_vault();
-                false -> Vault
-            end,
-            case is_backup_complete() of
-                true ->
-                    lager:info("backup complete"),
-                    % The server will now enter a period of rest until the
-                    % next time it is asked to begin a new backup.
-                    ok = akashita_app:delete_cache(),
-                    #state{vault=next_eligible_vault()};
-                false ->
-                    process_uploads(#state{vault=NextVault})
+            % If there is no worker, start one now and have it supervised
+            % by our supervisor. It will immediately start uploading
+            % archives for the named vault. The supervisor will be restart
+            % the worker automatically if it terminates abnormally.
+            case State#state.worker of
+                undefined ->
+                    ChildSpec = #{
+                        id => backup_worker,
+                        start => {akashita_backup, link_process, [State#state.vault]},
+                        restart => transient,
+                        shutdown => 5000,
+                        type => worker,
+                        modules => [akashita_backup]
+                    },
+                    {ok, Pid} = supervisor:start_child(akashita_sup, ChildSpec),
+                    Pid;
+                Pid -> Pid
+            end;
+        false -> State#state.worker
+    end,
+    State#state{worker=Worker}.
+
+% Spawn the worker process and return the result expected by supervisor.
+link_process(Vault) ->
+    {ok, spawn(akashita_backup, process_vault, [Vault])}.
+
+% Terminate the worker process, remove it from the supervisor, and return
+% the updated server state. This is done to make it easier to start a new
+% worker process when the time comes.
+terminate_worker(State) ->
+    ok = supervisor:terminate_child(akashita_sup, backup_worker),
+    ok = supervisor:delete_child(akashita_sup, backup_worker),
+    State#state{worker=undefined}.
+
+% Process a single vault until it is finished, or the time for uploading
+% comes to an end. Casts a message to the gen_server in either case.
+process_vault(Vault) ->
+    case is_go_time() of
+        true ->
+            case process_one_archive(Vault) of
+                true -> gen_server:cast(akashita_backup, completed);
+                false -> process_vault(Vault)
             end;
         false ->
-            lager:info("not time to upload, sleeping..."),
-            {ok, TRef} = fire_later(),
-            State#state{timer=TRef}
+            lager:info("reached end of upload window"),
+            gen_server:cast(akashita_backup, incomplete)
     end.
 
 % Process a single archive in the given Vault. If this vault is now
@@ -163,9 +229,23 @@ next_eligible_vault() ->
         [H|_T] -> H
     end.
 
-% Start a timer to cast a 'process' message to us in 10 minutes.
-fire_later() ->
+% Start an interval timer to cast a 'get_to_work' message to the gen_server
+% every 10 minutes.
+start_timer() ->
     M = gen_server,
     F = cast,
-    A = [akashita_backup, process],
-    timer:apply_after(1000*60*10, M, F, A).
+    A = [akashita_backup, get_to_work],
+    timer:apply_interval(1000*60*10, M, F, A).
+
+% Cancel the timer; does nothing if timer is 'undefined'.
+cancel_timer(undefined) ->
+    ok;
+cancel_timer(TRef) ->
+    {ok, cancel} = timer:cancel(TRef),
+    ok.
+
+% Convenience function to determine if it is time to upload archives.
+is_go_time() ->
+    {ok, GoTimes} = application:get_env(akashita, go_times),
+    {{_Y, _M, _D}, {Hour,  Min, _S}} = erlang:localtime(),
+    akashita:is_go_time(GoTimes, Hour, Min).

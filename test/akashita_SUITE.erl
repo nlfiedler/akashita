@@ -323,13 +323,14 @@ process_uploads_test(Config) ->
             ok = application:set_env(akashita, vaults, VaultsConf),
             % fire up the application and wait for it to finish
             {ok, _Started} = application:ensure_all_started(akashita),
-            ok = gen_server:call(akashita_backup, begin_backup, infinity),
+            ok = gen_server:call(akashita_backup, test_backup),
             % verify nothing happened (because of go_times)
             {error, Reason} = file:read_file_info(BackupLog),
             ?assertEqual(enoent, Reason),
             % correct the time and try again, this time something should happen
             ok = application:set_env(akashita, go_times, ["00:00-23:59"]),
-            ok = gen_server:call(akashita_backup, begin_backup, infinity),
+            ok = gen_server:call(akashita_backup, test_backup),
+            wait_for_backup_to_finish(),
             % examine the log file to ensure it created a vault and uploaded archives
             {ok, BackupBin} = file:read_file(BackupLog),
             BackupText = binary_to_list(BackupBin),
@@ -373,3 +374,8 @@ mkfile(FSFile) ->
             ?assertCmd(MBin ++ " 64m " ++ FSFile)
     end,
     ok.
+
+wait_for_backup_to_finish() ->
+    receive
+        backup_finished -> ok
+    end.
