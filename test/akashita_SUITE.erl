@@ -40,7 +40,11 @@ init_per_suite(Config) ->
     Config.
 
 end_per_suite(_Config) ->
-    ok = application:stop(akashita),
+    case application:stop(akashita) of
+        ok -> ok;
+        {error, {not_started, akashita}} -> ok;
+        {error, Reason} -> error(Reason)
+    end,
     ok = application:stop(mnesia).
 
 all() ->
