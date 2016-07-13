@@ -141,8 +141,9 @@ ensure_worker(State) ->
     State#state{worker=Worker}.
 
 % Spawn the worker process and return the result expected by supervisor.
+% Must link with the spawned process for the sake of the supervisor.
 link_process(Vault) ->
-    {ok, spawn(akashita_backup, process_vault, [Vault])}.
+    {ok, spawn_link(akashita_backup, process_vault, [Vault])}.
 
 % Terminate the worker process, remove it from the supervisor, and return
 % the updated server state. This is done to make it easier to start a new
