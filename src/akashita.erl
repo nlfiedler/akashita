@@ -69,6 +69,7 @@ ensure_vault_created(VaultTag) ->
             PrivPath = code:priv_dir(akashita),
             Cmd = filename:join(PrivPath, "klutlan"),
             Args = ["-create", "-vault", VaultTag],
+            lager:info("running ~s ~s (environment: ~s)", [Cmd, Args, Env]),
             Port = erlang:open_port({spawn_executable, Cmd},
                 [exit_status, {args, Args}, {env, Env}]),
             {ok, 0} = wait_for_port(Port),
@@ -89,6 +90,7 @@ upload_archive(Archive, Desc, VaultTag) ->
             PrivPath = code:priv_dir(akashita),
             Cmd = filename:join(PrivPath, "klutlan"),
             Args = ["-upload", Archive, "-desc", Desc, "-vault", VaultTag],
+            lager:info("running ~s ~s (environment: ~s)", [Cmd, Args, Env]),
             Port = erlang:open_port({spawn_executable, Cmd},
                 [exit_status, {args, Args}, {env, Env}]),
             case wait_for_port(Port) of
