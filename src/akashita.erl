@@ -65,10 +65,7 @@ is_go_time(Windows, Hour, Minute)
 ensure_vault_created(VaultTag) ->
     case application:get_env(akashita, test_log) of
         undefined ->
-            Env = case application:get_env(akashita, aws_region) of
-                undefined -> [];
-                {ok, Region} -> [{"AWS_REGION", Region}]
-            end,
+            Env = set_aws_env(),
             PrivPath = code:priv_dir(akashita),
             Cmd = filename:join(PrivPath, "klutlan"),
             Args = ["-create", "-vault", VaultTag],
@@ -88,10 +85,7 @@ ensure_vault_created(VaultTag) ->
 upload_archive(Archive, Desc, VaultTag) ->
     case application:get_env(akashita, test_log) of
         undefined ->
-            Env = case application:get_env(akashita, aws_region) of
-                undefined -> [];
-                {ok, Region} -> [{"AWS_REGION", Region}]
-            end,
+            Env = set_aws_env(),
             PrivPath = code:priv_dir(akashita),
             Cmd = filename:join(PrivPath, "klutlan"),
             Args = ["-upload", Archive, "-desc", Desc, "-vault", VaultTag],
@@ -340,3 +334,20 @@ add_sudo_if_needed(Cmd, Args, Config) ->
                         [exit_status, {args, [Cmd] ++ Args}])
             end
     end.
+
+% Return an environment mapping (list of name/value tuple pairs) suitable
+% for use with the AWS client (as invoked via erlang:open_port/2). Reads
+% the various AWS settings from the application environment.
+set_aws_env() ->
+    SetEnv = fun({AppEnvName, OsEnvName}, Acc) ->
+        case application:get_env(akashita, AppEnvName) of
+            undefined -> Acc;
+            {ok, AppEnvValue} -> Acc ++ [{OsEnvName, AppEnvValue}]
+        end
+    end,
+    SupportedSettings = [
+        {aws_region, "AWS_REGION"},
+        {aws_access_key_id, "AWS_ACCESS_KEY_ID"},
+        {aws_secret_access_key, "AWS_SECRET_ACCESS_KEY"}
+    ],
+    lists:foldl(SetEnv, [], SupportedSettings).

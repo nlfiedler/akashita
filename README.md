@@ -32,7 +32,7 @@ There are virtual machine definitions, managed using [Vagrant](https://www.vagra
 
 ### AWS Configuration
 
-The Amazon Web Services credentials and region will need to be configured, as described at [AWS SDK for Go](https://aws.amazon.com/sdk-for-go/), under **Getting Started**. This is typically done by putting the credentials in `~/.aws/credentials` and setting the region in the `AWS_REGION` environment variable. Alternatively, the region can be set in the akashita configuration file (see `docs/example.config`).
+The Amazon Web Services credentials and region will need to be configured, as described at [AWS SDK for Go](https://aws.amazon.com/sdk-for-go/), under **Getting Started**. This is typically done by putting the credentials in `~/.aws/credentials` and setting the region in the `AWS_REGION` environment variable. Alternatively, these can be set in the akashita configuration file (see `docs/example.config`).
 
 ### Deploying
 
