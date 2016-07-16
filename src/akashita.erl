@@ -29,6 +29,8 @@
 -export([destroy_dataset/2]).
 -export([ensure_vault_created/1, upload_archive/3]).
 
+-include_lib("kernel/include/file.hrl").
+
 % Determine if given time falls within upload window(s). Windows is a list
 % of strings in HH:MM-HH:MM format. The hours are 24-hour. The times can
 % span midnight, if needed.
@@ -65,11 +67,11 @@ is_go_time(Windows, Hour, Minute)
 ensure_vault_created(VaultTag) ->
     case application:get_env(akashita, test_log) of
         undefined ->
-            Env = set_aws_env(),
+            Env = build_aws_env(),
             PrivPath = code:priv_dir(akashita),
             Cmd = filename:join(PrivPath, "klutlan"),
             Args = ["-create", "-vault", VaultTag],
-            lager:info("running ~s ~s (environment: ~s)", [Cmd, Args, Env]),
+            lager:info("running ~w ~w (environment: ~w)", [Cmd, Args, filtered_env(Env)]),
             Port = erlang:open_port({spawn_executable, Cmd},
                 [exit_status, {args, Args}, {env, Env}]),
             {ok, 0} = wait_for_port(Port),
@@ -86,11 +88,11 @@ ensure_vault_created(VaultTag) ->
 upload_archive(Archive, Desc, VaultTag) ->
     case application:get_env(akashita, test_log) of
         undefined ->
-            Env = set_aws_env(),
+            Env = build_aws_env(),
             PrivPath = code:priv_dir(akashita),
             Cmd = filename:join(PrivPath, "klutlan"),
             Args = ["-upload", Archive, "-desc", Desc, "-vault", VaultTag],
-            lager:info("running ~s ~s (environment: ~s)", [Cmd, Args, Env]),
+            lager:info("running ~w ~w (environment: ~w)", [Cmd, Args, filtered_env(Env)]),
             Port = erlang:open_port({spawn_executable, Cmd},
                 [exit_status, {args, Args}, {env, Env}]),
             case wait_for_port(Port) of
@@ -225,20 +227,16 @@ create_archives(Vault, SplitDir, SplitSize, Options, DefaultExcludes) ->
     SourceDir = "/" ++ proplists:get_value(dataset, Options),
     Compress = proplists:get_bool(compress, Options),
     Exclusions = proplists:get_value(excludes, Options, DefaultExcludes),
-    TarCmd = string:join(tar_cmd(Paths, Compress, Exclusions), " "),
-    TarPort = erlang:open_port({spawn, TarCmd}, [exit_status, binary, {cd, SourceDir}]),
+    TarCmd = string:join(tar_cmd(SourceDir, Paths, Compress, Exclusions), " "),
     SplitCmd = string:join(split_cmd(Vault, SplitSize), " "),
-    SplitPort = erlang:open_port({spawn, SplitCmd}, [exit_status, binary, {cd, SplitDir}]),
-    % start with a ClosedCount of 1, otherwise split hangs indefinitely
-    {ok, 0} = pipe_until_exit(TarPort, SplitPort, 1),
-    % close the ports so the programs know to terminate (especially split)
-    ensure_port_closed(TarPort),
-    ensure_port_closed(SplitPort),
+    ScriptCmd = generate_tar_split_script(TarCmd, SplitCmd, SplitDir),
+    ScriptPort = erlang:open_port({spawn, ScriptCmd}, [exit_status]),
+    {ok, 0} = wait_for_port(ScriptPort),
     lager:info("tar archive creation complete"),
     ok.
 
 % Generate the command to invoke tar for the given set of file paths.
-tar_cmd(Paths, Compress, Exclusions) ->
+tar_cmd(ChangeDir, Paths, Compress, Exclusions) ->
     Copt = case Compress of
         true -> ["-j"];
         false -> []
@@ -249,7 +247,7 @@ tar_cmd(Paths, Compress, Exclusions) ->
     end,
     % Need the "-f -" for bsdtar, otherwise it attempts to use the default
     % tape drive device (/dev/sa0).
-    ["tar", "-f", "-", "-c"] ++ Copt ++ Eopt ++ Paths.
+    ["tar", "-C", ChangeDir, "-f", "-", "-c"] ++ Copt ++ Eopt ++ Paths.
 
 % Generate the command to invoke split, reading from standard input, and
 % producing files whose names begin with the given prefix. The SplitSize
@@ -257,35 +255,40 @@ tar_cmd(Paths, Compress, Exclusions) ->
 split_cmd(Prefix, SplitSize) ->
     [
         %
-        % These options should work for both GNU split and BSD split for the
-        % sake of testing on various systems.
+        % These options should work for both GNU split and BSD split for
+        % the sake of testing on various systems.
         %
         "split",
         "-d",
-        % The split command fails if it runs out of suffix digits, so give it
-        % enough digits to handle our rather large files.
+        % The split command fails if it runs out of suffix digits, so give
+        % it enough digits to handle a large number of files.
         "-a", "5",
         "-b", SplitSize,
         "-",
         Prefix
     ].
 
-% Receive data from SendPort and write to RecvPort. Waits for both ports to close.
-pipe_until_exit(SendPort, RecvPort, ClosedCount) ->
-    receive
-        {_Port, {exit_status, Status}} ->
-            if ClosedCount == 1 -> {ok, Status};
-                true -> pipe_until_exit(SendPort, RecvPort, ClosedCount + 1)
-            end;
-        {SendPort, {data, Data}} ->
-            RecvPort ! {self(), {command, Data}},
-            pipe_until_exit(SendPort, RecvPort, ClosedCount);
-        {RecvPort, {data, _Data}} ->
-            lager:notice("received data from receiving port"),
-            pipe_until_exit(SendPort, RecvPort, ClosedCount);
-        {'EXIT', Port, Reason} ->
-            lager:info("port ~w exited, ~w", [Port, Reason])
-    end.
+% Generate a shell script to change to the given SplitDir, then execute the
+% tar command, piping its output to the split command. Returns the path of
+% the generated shell script.
+generate_tar_split_script(TarCmd, SplitCmd, SplitDir) ->
+    % Let the shell do the pipelining for us, as it seems rather difficult
+    % to do so in Erlang, without eventually running out of memory.
+    Cmds = [
+        "#!/bin/sh",
+        "cd " ++ SplitDir,
+        TarCmd ++ " | " ++ SplitCmd,
+        % ensure the last line ends with a newline
+        ""
+    ],
+    PrivPath = code:priv_dir(akashita),
+    ScriptPath = filename:join(PrivPath, "tar_split.sh"),
+    {ok, IoDevice} = file:open(ScriptPath, [write]),
+    ScriptText = string:join(Cmds, "\n"),
+    ok = file:write(IoDevice, list_to_binary(ScriptText)),
+    ok = file:close(IoDevice),
+    ok = file:write_file_info(ScriptPath, #file_info{mode=8#00755}),
+    ScriptPath.
 
 % Wait for the given Port to complete and return the exit code in the form
 % of {ok, Status}. Any output received is written to the log. If the port
@@ -340,7 +343,7 @@ add_sudo_if_needed(Cmd, Args, Config) ->
 % Return an environment mapping (list of name/value tuple pairs) suitable
 % for use with the AWS client (as invoked via erlang:open_port/2). Reads
 % the various AWS settings from the application environment.
-set_aws_env() ->
+build_aws_env() ->
     SetEnv = fun({AppEnvName, OsEnvName}, Acc) ->
         case application:get_env(akashita, AppEnvName) of
             undefined -> Acc;
@@ -353,3 +356,8 @@ set_aws_env() ->
         {aws_secret_access_key, "AWS_SECRET_ACCESS_KEY"}
     ],
     lists:foldl(SetEnv, [], SupportedSettings).
+
+% Replace any passwords with placeholder text for the purpose of logging
+% the environment (a list of tuple pairs).
+filtered_env(Env) ->
+    lists:keyreplace("AWS_SECRET_ACCESS_KEY", 1, Env, {"AWS_SECRET_ACCESS_KEY", "********"}).
