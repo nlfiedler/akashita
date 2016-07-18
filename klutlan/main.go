@@ -19,7 +19,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -325,16 +324,12 @@ func uploadFile(filename, desc, vault string) {
 		fmt.Println(err.Error())
 		os.Exit(1)
 	}
-	hash := glacier.ComputeHashes(infile)
-	infile.Seek(0, 0)
-
 	svc := glacier.New(session.New())
 	params := &glacier.UploadArchiveInput{
 		AccountId:          aws.String("-"),
 		ArchiveDescription: aws.String(desc),
 		VaultName:          &vault,
 		Body:               infile,
-		Checksum:           aws.String(hex.EncodeToString(hash.TreeHash)),
 	}
 	resp, err := svc.UploadArchive(params)
 	if err != nil {
