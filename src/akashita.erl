@@ -71,7 +71,6 @@ ensure_vault_created(VaultTag) ->
             PrivPath = code:priv_dir(akashita),
             Cmd = filename:join(PrivPath, "klutlan"),
             Args = ["-create", "-vault", VaultTag],
-            lager:info("running ~w ~w (environment: ~w)", [Cmd, Args, filtered_env(Env)]),
             Port = erlang:open_port({spawn_executable, Cmd},
                 [exit_status, {args, Args}, {env, Env}]),
             {ok, 0} = wait_for_port(Port),
@@ -92,7 +91,6 @@ upload_archive(Archive, Desc, VaultTag) ->
             PrivPath = code:priv_dir(akashita),
             Cmd = filename:join(PrivPath, "klutlan"),
             Args = ["-upload", Archive, "-desc", Desc, "-vault", VaultTag],
-            lager:info("running ~w ~w (environment: ~w)", [Cmd, Args, filtered_env(Env)]),
             Port = erlang:open_port({spawn_executable, Cmd},
                 [exit_status, {args, Args}, {env, Env}]),
             case wait_for_port(Port) of
@@ -356,8 +354,3 @@ build_aws_env() ->
         {aws_secret_access_key, "AWS_SECRET_ACCESS_KEY"}
     ],
     lists:foldl(SetEnv, [], SupportedSettings).
-
-% Replace any passwords with placeholder text for the purpose of logging
-% the environment (a list of tuple pairs).
-filtered_env(Env) ->
-    lists:keyreplace("AWS_SECRET_ACCESS_KEY", 1, Env, {"AWS_SECRET_ACCESS_KEY", "********"}).
