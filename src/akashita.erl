@@ -271,11 +271,13 @@ split_cmd(Prefix, SplitSize) ->
 % the generated shell script.
 generate_tar_split_script(TarCmd, SplitCmd, SplitDir) ->
     % Let the shell do the pipelining for us, as it seems rather difficult
-    % to do so in Erlang, without eventually running out of memory.
+    % to do so in Erlang, without eventually running out of memory. It
+    % should use the pipestatus as its own exit code.
     Cmds = [
         "#!/bin/sh",
         "cd " ++ SplitDir,
         TarCmd ++ " | " ++ SplitCmd,
+        "exit ${PIPESTATUS[0]}",
         % ensure the last line ends with a newline
         ""
     ],
