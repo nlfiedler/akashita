@@ -1,6 +1,6 @@
 # Akashita
 
-[Akashita](http://en.wikipedia.org/wiki/Akashita) is an Erlang/Go hybrid application to facilitate automatically creating ZFS snapshots and uploading them to [Amazon Glacier](https://aws.amazon.com/glacier/). The intent is for the upload to occur during "off-peak" hours to avoid competing with high-demand Internet services.
+[Akashita](http://en.wikipedia.org/wiki/Akashita) is an Erlang/Go hybrid application to facilitate automatically creating ZFS snapshots and uploading them to [Google Cloud Storage](https://cloud.google.com/storage/) as a means of off-site backup. The intent is for the upload to occur during "off-peak" hours to avoid competing with high-demand Internet services. The storage class used is hard-coded to "nearline", the most affordable storage offered by Google.
 
 ## Requirements
 
@@ -29,10 +29,6 @@ $ rebar3 ct
 There are virtual machine definitions, managed using [Vagrant](https://www.vagrantup.com) and provisioned using [Fabric](http://www.fabfile.org), that are available for building and testing on [FreeBSD](https://www.freebsd.org) and [Ubuntu](http://www.ubuntu.com). These are found in the `vagrant` directory.
 
 ## Usage
-
-### AWS Configuration
-
-The Amazon Web Services credentials and region will need to be configured, as described at [AWS SDK for Go](https://aws.amazon.com/sdk-for-go/), under **Getting Started**. This is typically done by putting the credentials in `~/.aws/credentials` and setting the region in the `AWS_REGION` environment variable. Alternatively, these can be set in the akashita configuration file (see `docs/example.config`).
 
 ### Deploying
 

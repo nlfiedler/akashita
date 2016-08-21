@@ -24,7 +24,7 @@
 -module(akashita_app).
 -behaviour(application).
 -export([start/2, stop/1, ensure_schema/1]).
--export([retrieve_tag/0, is_vault_completed/1, remember_completed_vault/1]).
+-export([retrieve_tag/0, is_bucket_completed/1, remember_completed_bucket/1]).
 -export([delete_cache/0]).
 
 % The tag table only has one entry, the previous computed tag.
@@ -33,16 +33,16 @@
                        value :: string()}).
 -define(THE_TAG, the_tag).
 
-% The vaults table has one row per completed vault. The key is the vault
+% The buckets table has one row per completed bucket. The key is the bucket
 % name, and the value is unused.
--record(akashita_vaults, {name  :: string(),
-                          value :: term()}).
+-record(akashita_buckets, {name  :: string(),
+                           value :: term()}).
 
 start(_Type, _Args) ->
     NodeList = [node()],
     ensure_schema(NodeList),
     ensure_mnesia(NodeList),
-    ok = mnesia:wait_for_tables([akashita_tag, akashita_vaults], 5000),
+    ok = mnesia:wait_for_tables([akashita_tag, akashita_buckets], 5000),
     akashita_sup:start_link().
 
 stop(_) ->
@@ -79,10 +79,10 @@ ensure_schema(Nodes) ->
             true ->
                 ok
         end,
-        case lists:member(akashita_vaults, Tables) of
+        case lists:member(akashita_buckets, Tables) of
             false ->
-                {atomic, ok} = mnesia:create_table(akashita_vaults, [
-                    {attributes, record_info(fields, akashita_vaults)},
+                {atomic, ok} = mnesia:create_table(akashita_buckets, [
+                    {attributes, record_info(fields, akashita_buckets)},
                     {disc_copies, Nodes},
                     {type, set}
                 ]),
@@ -111,7 +111,7 @@ ensure_mnesia(Nodes) ->
     end.
 
 % Retrieve (or compute) the tag used in naming various elements, such as
-% zfs snapshots, vaults, archives, etc.
+% zfs snapshots, buckets, objects, etc.
 retrieve_tag() ->
     F = fun() ->
         case mnesia:read(akashita_tag, ?THE_TAG) of
@@ -126,11 +126,11 @@ retrieve_tag() ->
     end,
     mnesia:activity(transaction, F).
 
-% Determine if the named Vault has already been completed.
+% Determine if the named Bucket has already been completed.
 % Returns true or false.
-is_vault_completed(Vault) ->
+is_bucket_completed(Bucket) ->
     F = fun() ->
-        case mnesia:read(akashita_vaults, Vault) of
+        case mnesia:read(akashita_buckets, Bucket) of
             [] ->
                 false;
             [_Row] -> true
@@ -138,18 +138,18 @@ is_vault_completed(Vault) ->
     end,
     mnesia:activity(transaction, F).
 
-% Remember that the given vault has been processed, so that the next time
-% is_vault_completed/1 is called, it will return true.
-remember_completed_vault(Vault) ->
+% Remember that the given bucket has been processed, so that the next time
+% is_bucket_completed/1 is called, it will return true.
+remember_completed_bucket(Bucket) ->
     F = fun() ->
         Value = calendar:local_time(),
-        ok = mnesia:write(#akashita_vaults{name=Vault, value=Value})
+        ok = mnesia:write(#akashita_buckets{name=Bucket, value=Value})
     end,
     mnesia:activity(transaction, F).
 
 % All backup processing has successfully completed, wipe out all cached
-% data, such as the computed tag and the set of completed vaults.
+% data, such as the computed tag and the set of completed buckets.
 delete_cache() ->
-    {atomic, ok} = mnesia:clear_table(akashita_vaults),
+    {atomic, ok} = mnesia:clear_table(akashita_buckets),
     {atomic, ok} = mnesia:clear_table(akashita_tag),
     ok.

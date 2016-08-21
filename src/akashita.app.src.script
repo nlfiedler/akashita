@@ -24,7 +24,7 @@ AppEnv = case file:consult("user_env.config") of
     % else, surface the error
 end.
 App = [
-    {description, "Backup ZFS datasets to Amazon Glaicer."},
+    {description, "Backup ZFS datasets to Google Cloud Storage."},
     {vsn, "0.1.0"},
     {registered, []},
     {applications, [

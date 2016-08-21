@@ -25,9 +25,9 @@
 -behavior(gen_server).
 -export([start_link/0]).
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2, terminate/2, code_change/3]).
--export([link_process/1, process_vault/1]).
+-export([link_process/1, process_bucket/1]).
 
--record(state, {timer, vault, worker, callback}).
+-record(state, {timer, bucket, worker, callback}).
 
 %%
 %% Client API
@@ -39,9 +39,9 @@ start_link() ->
 %% gen_server callbacks
 %%
 init([]) ->
-    Vault = next_eligible_vault(),
+    Bucket = next_eligible_bucket(),
     {ok, TRef} = start_timer(),
-    State = #state{timer=TRef, vault=Vault},
+    State = #state{timer=TRef, bucket=Bucket},
     {ok, State}.
 
 handle_call(begin_backup, _From, State) ->
@@ -72,7 +72,7 @@ handle_cast(get_to_work, State) ->
     % Ensure there is a worker handling the uploads.
     {noreply, ensure_worker(State)};
 handle_cast(completed, State) ->
-    % A vault has been completed, check if there is any additional work to
+    % A bucket has been completed, check if there is any additional work to
     % be done, and start a new worker if true. Otherwise, stop the interval
     % timer, clear the cache, and go to sleep.
     State1 = terminate_worker(State),
@@ -89,7 +89,7 @@ handle_cast(completed, State) ->
             #state{};
         false ->
             lager:info("backup not yet complete"),
-            ensure_worker(State1#state{vault=next_eligible_vault()})
+            ensure_worker(State1#state{bucket=next_eligible_bucket()})
     end,
     {noreply, State2};
 handle_cast(incomplete, State) ->
@@ -120,13 +120,13 @@ ensure_worker(State) ->
         true ->
             % If there is no worker, start one now and have it supervised
             % by our supervisor. It will immediately start uploading
-            % archives for the named vault. The supervisor will be restart
+            % objects for the named bucket. The supervisor will be restart
             % the worker automatically if it terminates abnormally.
             case State#state.worker of
                 undefined ->
                     ChildSpec = #{
                         id => backup_worker,
-                        start => {akashita_backup, link_process, [State#state.vault]},
+                        start => {akashita_backup, link_process, [State#state.bucket]},
                         restart => transient,
                         shutdown => 5000,
                         type => worker,
@@ -142,8 +142,8 @@ ensure_worker(State) ->
 
 % Spawn the worker process and return the result expected by supervisor.
 % Must link with the spawned process for the sake of the supervisor.
-link_process(Vault) ->
-    {ok, spawn_link(akashita_backup, process_vault, [Vault])}.
+link_process(Bucket) ->
+    {ok, spawn_link(akashita_backup, process_bucket, [Bucket])}.
 
 % Terminate the worker process, remove it from the supervisor, and return
 % the updated server state. This is done to make it easier to start a new
@@ -153,56 +153,55 @@ terminate_worker(State) ->
     ok = supervisor:delete_child(akashita_sup, backup_worker),
     State#state{worker=undefined}.
 
-% Process a single vault until it is finished, or the time for uploading
+% Process a single bucket until it is finished, or the time for uploading
 % comes to an end. Casts a message to the gen_server in either case.
-process_vault(Vault) ->
+process_bucket(Bucket) ->
     case is_go_time() of
         true ->
-            case process_one_archive(Vault) of
+            case process_one_object(Bucket) of
                 true -> gen_server:cast(akashita_backup, completed);
-                false -> process_vault(Vault)
+                false -> process_bucket(Bucket)
             end;
         false ->
             lager:info("reached end of upload window"),
             gen_server:cast(akashita_backup, incomplete)
     end.
 
-% Process a single archive in the given Vault. If this vault is now
+% Process a single object in the given Bucket. If this bucket is now
 % completed, return true, otherwise false.
-process_one_archive(undefined) ->
-    % just in case this happens, pretend we finished this "vault"
+process_one_object(undefined) ->
+    % just in case this happens, pretend we finished this "bucket"
     true;
-process_one_archive(Vault) ->
+process_one_object(Bucket) ->
     AppConfig = application:get_all_env(akashita),
     Tag = akashita_app:retrieve_tag(),
-    VaultTag = Vault ++ "-" ++ Tag,
-    VaultList = proplists:get_value(vaults, AppConfig),
-    VaultConf = proplists:get_value(Vault, VaultList),
-    Dataset = proplists:get_value(dataset, VaultConf),
+    BucketName = Bucket ++ "-" ++ Tag,
+    BucketList = proplists:get_value(buckets, AppConfig),
+    BucketConf = proplists:get_value(Bucket, BucketList),
+    Dataset = proplists:get_value(dataset, BucketConf),
     {ok, Snapshot} = akashita:ensure_snapshot_exists(Tag, Dataset, AppConfig),
-    CloneName = proplists:get_value(clone_base, VaultConf),
+    CloneName = proplists:get_value(clone_base, BucketConf),
     ok = akashita:ensure_clone_exists(CloneName, Snapshot, AppConfig),
-    ok = akashita:ensure_vault_created(VaultTag),
-    ArchiveDir = akashita:ensure_archives(Vault, Tag, AppConfig),
-    lager:info("archive dir: ~s", [ArchiveDir]),
-    case file:list_dir(ArchiveDir) of
+    ok = akashita:ensure_bucket_created(BucketName),
+    ObjectDir = akashita:ensure_objects(Bucket, Tag, AppConfig),
+    lager:info("object dir: ~s", [ObjectDir]),
+    case file:list_dir(ObjectDir) of
         {ok, []} ->
             % this should not have happened
-            error(empty_archive_dir);
-        {ok, [Archive|Rest]} ->
-            lager:info("uploading archive: ~s", [Archive]),
-            Desc = "filename:" ++ Archive,
-            ArchivePath = filename:join(ArchiveDir, Archive),
-            {Time, ok} = timer:tc(akashita, upload_archive, [ArchivePath, Desc, VaultTag]),
-            lager:info("archive ~s uploaded in ~.2f minutes", [Archive, Time / 60000000]),
-            ok = file:delete(ArchivePath),
+            error(empty_object_dir);
+        {ok, [Filename|Rest]} ->
+            lager:info("uploading file: ~s", [Filename]),
+            FilePath = filename:join(ObjectDir, Filename),
+            {Time, ok} = timer:tc(akashita, upload_object, [FilePath, BucketName]),
+            lager:info("file ~s uploaded in ~.2f minutes", [Filename, Time / 60000000]),
+            ok = file:delete(FilePath),
             case length(Rest) of
                 0 ->
-                    ok = akashita_app:remember_completed_vault(Vault),
+                    ok = akashita_app:remember_completed_bucket(Bucket),
                     ok = akashita:destroy_dataset(CloneName, AppConfig),
                     ok = akashita:destroy_dataset(Snapshot, AppConfig),
-                    ok = file:del_dir(ArchiveDir),
-                    lager:info("vault completed: ~s", [Vault]),
+                    ok = file:del_dir(ObjectDir),
+                    lager:info("bucket completed: ~s", [Bucket]),
                     true;
                 _ ->
                     false
@@ -211,21 +210,21 @@ process_one_archive(Vault) ->
 
 % Determine if the entire backup process has been completed or not.
 is_backup_complete() ->
-    {ok, Vaults} = application:get_env(akashita, vaults),
-    VaultNames = proplists:get_keys(Vaults),
+    {ok, Buckets} = application:get_env(akashita, buckets),
+    BucketNames = proplists:get_keys(Buckets),
     Completed = fun(Name) ->
-        akashita_app:is_vault_completed(Name)
+        akashita_app:is_bucket_completed(Name)
     end,
-    lists:all(Completed, VaultNames).
+    lists:all(Completed, BucketNames).
 
-% Find the next vault that has not yet been processed, or undefined if none.
-next_eligible_vault() ->
-    {ok, Vaults} = application:get_env(akashita, vaults),
-    VaultNames = proplists:get_keys(Vaults),
+% Find the next bucket that has not yet been processed, or undefined if none.
+next_eligible_bucket() ->
+    {ok, Buckets} = application:get_env(akashita, buckets),
+    BucketNames = proplists:get_keys(Buckets),
     NotCompleted = fun(Name) ->
-        akashita_app:is_vault_completed(Name) == false
+        akashita_app:is_bucket_completed(Name) == false
     end,
-    case lists:filter(NotCompleted, VaultNames) of
+    case lists:filter(NotCompleted, BucketNames) of
         [] -> undefined;
         [H|_T] -> H
     end.
@@ -245,7 +244,7 @@ cancel_timer(TRef) ->
     {ok, cancel} = timer:cancel(TRef),
     ok.
 
-% Convenience function to determine if it is time to upload archives.
+% Convenience function to determine if it is time to upload files.
 is_go_time() ->
     {ok, GoTimes} = application:get_env(akashita, go_times),
     {{_Y, _M, _D}, {Hour,  Min, _S}} = erlang:localtime(),

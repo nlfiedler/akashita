@@ -50,12 +50,12 @@ end_per_suite(_Config) ->
 all() ->
     [
         is_go_time_test,
-        ensure_archives_test,
+        ensure_objects_test,
         ensure_snapshot_exists_test,
         ensure_clone_exists_test,
         destroy_dataset_test,
         retrieve_tag_test,
-        vault_completed_test,
+        bucket_completed_test,
         process_uploads_test
     ].
 
@@ -127,8 +127,8 @@ is_go_time_test(_Config) ->
     ?assertError(badarg, akashita:is_go_time(["23:11-13:99"], 0, 0)),
     ok.
 
-% Test the ensure_archives/3 function.
-ensure_archives_test(_Config) ->
+% Test the ensure_objects/3 function.
+ensure_objects_test(_Config) ->
     % create a temporary directory for the split files
     TmpDir = string:strip(?cmd("mktemp -d"), right, $\n),
     % sanity check the result of mktemp so we don't clobber random files
@@ -139,14 +139,14 @@ ensure_archives_test(_Config) ->
     SplitSize = integer_to_list(?SPLIT_SIZE),
     % exclude the ever-growing logs directory tree
     Options = [{paths, ["."]}, {dataset, tl(Cwd)}, {excludes, ["logs"]}],
-    Vault = "xfiles",
+    Bucket = "xfiles",
     Tag = "10-14-2005",
-    AppConfig = [{split_size, SplitSize}, {tmpdir, TmpDir}, {vaults, [{Vault, Options}]}],
-    % create the archives
-    SplitsDir = akashita:ensure_archives(Vault, Tag, AppConfig),
+    AppConfig = [{split_size, SplitSize}, {tmpdir, TmpDir}, {buckets, [{Bucket, Options}]}],
+    % create the objects
+    SplitsDir = akashita:ensure_objects(Bucket, Tag, AppConfig),
     NumSplits1 = verify_split_files(SplitsDir, "xfiles"),
     % call the same function again, should not create any new files
-    SplitsDir = akashita:ensure_archives(Vault, Tag, AppConfig),
+    SplitsDir = akashita:ensure_objects(Bucket, Tag, AppConfig),
     NumSplits2 = verify_split_files(SplitsDir, "xfiles"),
     ?assertEqual(NumSplits1, NumSplits2),
     % remove the split files and the temp directory
@@ -167,9 +167,9 @@ ensure_snapshot_exists_test(Config) ->
             ?assertCmd("sudo zpool create panzer " ++ FSFile),
             AppConfig = [{use_sudo, true}],
             {ok, Snapshot} = akashita:ensure_snapshot_exists("10-14-2005", "panzer", AppConfig),
-            Snapshots = ?cmd("sudo zfs list -H -r -t snapshot panzer@glacier:10-14-2005"),
+            Snapshots = ?cmd("sudo zfs list -H -r -t snapshot panzer@akashita:10-14-2005"),
             [DatasetName|_Rest] = re:split(Snapshots, "\t", [{return, list}]),
-            ?assertEqual("panzer@glacier:10-14-2005", DatasetName),
+            ?assertEqual("panzer@akashita:10-14-2005", DatasetName),
             % do it again to make sure it does not crash, and returns the same name
             {ok, Snapshot} = akashita:ensure_snapshot_exists("10-14-2005", "panzer", AppConfig),
             ?assertCmd("sudo zpool destroy panzer"),
@@ -209,16 +209,16 @@ ensure_clone_exists_test(Config) ->
             mkfile(FSFile),
             % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind
             ?assertCmd("sudo zpool create panzer " ++ FSFile),
-            ?assertCmd("sudo zfs snapshot panzer@glacier:10-14-2005"),
+            ?assertCmd("sudo zfs snapshot panzer@akashita:10-14-2005"),
             AppConfig = [{use_sudo, true}],
             ok = akashita:ensure_clone_exists(
-                "panzer/parts", "panzer@glacier:10-14-2005", AppConfig),
+                "panzer/parts", "panzer@akashita:10-14-2005", AppConfig),
             Datasets = ?cmd("sudo zfs list"),
             ct:log(default, 50, "datasets: ~s", [Datasets]),
             ?assert(string:str(Datasets, "panzer/parts") > 0),
             % do it again to make sure it does not crash
             ok = akashita:ensure_clone_exists(
-                "panzer/parts", "panzer@glacier:10-14-2005", AppConfig),
+                "panzer/parts", "panzer@akashita:10-14-2005", AppConfig),
             ?assertCmd("sudo zpool destroy panzer"),
             ok = file:delete(FSFile)
     end.
@@ -235,12 +235,12 @@ destroy_dataset_test(Config) ->
             mkfile(FSFile),
             % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind
             ?assertCmd("sudo zpool create panzer " ++ FSFile),
-            ?assertCmd("sudo zfs snapshot panzer@glacier:10-14-2005"),
+            ?assertCmd("sudo zfs snapshot panzer@akashita:10-14-2005"),
             AppConfig = [{use_sudo, true}],
-            ok = akashita:destroy_dataset("panzer@glacier:10-14-2005", AppConfig),
+            ok = akashita:destroy_dataset("panzer@akashita:10-14-2005", AppConfig),
             Datasets = ?cmd("sudo zfs list"),
             ct:log(default, 50, "datasets: ~s", [Datasets]),
-            ?assertEqual(0, string:str(Datasets, "panzer@glacier:10-14-2005")),
+            ?assertEqual(0, string:str(Datasets, "panzer@akashita:10-14-2005")),
             ?assertCmd("sudo zpool destroy panzer"),
             ok = file:delete(FSFile)
     end.
@@ -252,29 +252,29 @@ retrieve_tag_test(_Config) ->
     ?assertEqual(Tag1, Tag2),
     ok.
 
-% Test the functions related to remembering which vaults have been
+% Test the functions related to remembering which buckets have been
 % completed. This includes negative tests, positive tests, and clearing the
 % cache.
-vault_completed_test(_Config) ->
-    ?assertNot(akashita_app:is_vault_completed("foo")),
-    ok = akashita_app:remember_completed_vault("foo"),
-    ?assert(akashita_app:is_vault_completed("foo")),
-    ok = akashita_app:remember_completed_vault("bar"),
-    ok = akashita_app:remember_completed_vault("baz"),
-    ok = akashita_app:remember_completed_vault("quux"),
-    ?assert(akashita_app:is_vault_completed("foo")),
-    ?assert(akashita_app:is_vault_completed("bar")),
-    ?assert(akashita_app:is_vault_completed("baz")),
-    ?assert(akashita_app:is_vault_completed("quux")),
+bucket_completed_test(_Config) ->
+    ?assertNot(akashita_app:is_bucket_completed("foo")),
+    ok = akashita_app:remember_completed_bucket("foo"),
+    ?assert(akashita_app:is_bucket_completed("foo")),
+    ok = akashita_app:remember_completed_bucket("bar"),
+    ok = akashita_app:remember_completed_bucket("baz"),
+    ok = akashita_app:remember_completed_bucket("quux"),
+    ?assert(akashita_app:is_bucket_completed("foo")),
+    ?assert(akashita_app:is_bucket_completed("bar")),
+    ?assert(akashita_app:is_bucket_completed("baz")),
+    ?assert(akashita_app:is_bucket_completed("quux")),
     ok = akashita_app:delete_cache(),
-    ?assertNot(akashita_app:is_vault_completed("foo")),
-    ?assertNot(akashita_app:is_vault_completed("bar")),
-    ?assertNot(akashita_app:is_vault_completed("baz")),
-    ?assertNot(akashita_app:is_vault_completed("quux")),
+    ?assertNot(akashita_app:is_bucket_completed("foo")),
+    ?assertNot(akashita_app:is_bucket_completed("bar")),
+    ?assertNot(akashita_app:is_bucket_completed("baz")),
+    ?assertNot(akashita_app:is_bucket_completed("quux")),
     ok.
 
-% Test the akashita_backup application by setting it up to process a vault,
-% uploading archives and running to completion.
+% Test the akashita_backup application by setting it up to process a bucket,
+% uploading objects and running to completion.
 process_uploads_test(Config) ->
     case os:find_executable("zfs") of
         false ->
@@ -295,7 +295,7 @@ process_uploads_test(Config) ->
             % copy everything except the logs which contains our 64MB file
             % (and priv contains the giant Go binary)
             ?assertCmd("rsync --exclude=logs --exclude=priv -r " ++ Cwd ++ "/* /panzer/shared"),
-            % copy something to the photos "vault", that will result in a single archive
+            % copy something to the photos "bucket", that will result in a single object
             {ok, _BC} = file:copy(filename:join(Cwd, "test/akashita_SUITE.erl"),
                 "/panzer/photos/akashita_SUITE.erl"),
             BackupLog = filename:join(PrivDir, "backup.log"),
@@ -310,21 +310,21 @@ process_uploads_test(Config) ->
             ok = application:set_env(akashita, split_size, "256K"),
             % ignore the bothersome special directories and files
             ok = application:set_env(akashita, default_excludes, ?DEFAULT_EXCLUDES),
-            VaultsConf = [
+            BucketsConf = [
                 {"shared", [
                     {dataset, "panzer/shared"},
-                    {clone_base, "panzer/glacier"},
+                    {clone_base, "panzer/akashita"},
                     {paths, ["."]},
                     {compressed, false}
                 ]},
                 {"photos", [
                     {dataset, "panzer/photos"},
-                    {clone_base, "panzer/glacier"},
+                    {clone_base, "panzer/akashita"},
                     {paths, ["."]},
                     {compressed, true}
                 ]}
             ],
-            ok = application:set_env(akashita, vaults, VaultsConf),
+            ok = application:set_env(akashita, buckets, BucketsConf),
             % fire up the application and wait for it to finish
             {ok, _Started} = application:ensure_all_started(akashita),
             ok = gen_server:call(akashita_backup, test_backup),
@@ -335,27 +335,27 @@ process_uploads_test(Config) ->
             ok = application:set_env(akashita, go_times, ["00:00-23:59"]),
             ok = gen_server:call(akashita_backup, test_backup),
             wait_for_backup_to_finish(),
-            % examine the log file to ensure it created a vault and uploaded archives
+            % examine the log file to ensure it created a bucket and uploaded files
             {ok, BackupBin} = file:read_file(BackupLog),
             BackupText = binary_to_list(BackupBin),
             Tag = akashita_app:retrieve_tag(),
-            % check for the vaults..
-            VaultNames = proplists:get_keys(VaultsConf),
-            VaultTags = [Name ++ "-" ++ Tag || Name <- VaultNames],
-            FindVaultsCreated = fun(VaultTag) ->
-                E = lists:flatten(io_lib:format("vault ~s created", [VaultTag])),
+            % check for the buckets..
+            BucketNames = proplists:get_keys(BucketsConf),
+            BucketTags = [Name ++ "-" ++ Tag || Name <- BucketNames],
+            FindBucketsCreated = fun(BucketTag) ->
+                E = lists:flatten(io_lib:format("bucket ~s created", [BucketTag])),
                 ?assert(string:str(BackupText, E) > 0)
             end,
-            lists:foreach(FindVaultsCreated, VaultTags),
-            % check for the archives ...
-            SharedArchives = [lists:flatten(io_lib:format("shared~5.10.0B", [I])) || I <- lists:seq(1, 10)],
+            lists:foreach(FindBucketsCreated, BucketTags),
+            % check for the objects ...
+            SharedObjects = [lists:flatten(io_lib:format("shared~5.10.0B", [I])) || I <- lists:seq(1, 10)],
             SharedTag = "shared-" ++ Tag,
-            FindArchivesUploaded = fun(ArchiveName) ->
-                E = lists:flatten(io_lib:format("~s uploaded to ~s", [ArchiveName, SharedTag])),
+            FindObjectsUploaded = fun(ObjectName) ->
+                E = lists:flatten(io_lib:format("~s uploaded to ~s", [ObjectName, SharedTag])),
                 ?assert(string:str(BackupText, E) > 0)
             end,
-            lists:foreach(FindArchivesUploaded, SharedArchives),
-            % check that only one photos archive was uploaded
+            lists:foreach(FindObjectsUploaded, SharedObjects),
+            % check that only one photos object was uploaded
             ?assertEqual(0, string:str(BackupText, lists:flatten(
                 io_lib:format("photos00001 uploaded to photos-~s", [Tag])))),
             ?assertCmd("sudo zpool destroy panzer"),

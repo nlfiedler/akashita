@@ -24,10 +24,10 @@
 -module(akashita).
 
 -export([is_go_time/3]).
--export([ensure_archives/3]).
+-export([ensure_objects/3]).
 -export([ensure_clone_exists/3, ensure_snapshot_exists/3]).
 -export([destroy_dataset/2]).
--export([ensure_vault_created/1, upload_archive/3]).
+-export([ensure_bucket_created/1, upload_object/2]).
 
 -include_lib("kernel/include/file.hrl").
 
@@ -63,14 +63,16 @@ is_go_time(Windows, Hour, Minute)
     end,
     lists:any(InWindow, Windows).
 
-% Ensure the named vault has been created.
-ensure_vault_created(VaultTag) ->
+% Ensure the named bucket has been created.
+ensure_bucket_created(Bucket) ->
     case application:get_env(akashita, test_log) of
         undefined ->
-            Env = build_aws_env(),
+            Env = build_gcloud_env(),
+            Location = application:get_env(akashita, gcs_region),
+            Project = application:get_env(akashita, gcp_project),
             PrivPath = code:priv_dir(akashita),
-            Cmd = filename:join(PrivPath, "klutlan"),
-            Args = ["-create", "-vault", VaultTag],
+            Cmd = filename:join(PrivPath, "akashita"),
+            Args = ["-create", "-bucket", Bucket, "-location", Location, "-project", Project],
             Port = erlang:open_port({spawn_executable, Cmd},
                 [exit_status, {args, Args}, {env, Env}]),
             {ok, 0} = wait_for_port(Port),
@@ -78,34 +80,34 @@ ensure_vault_created(VaultTag) ->
         {ok, LogFile} ->
             % in test mode, write to a log file
             {ok, IoDevice} = file:open(LogFile, [append]),
-            Record = io_lib:format("vault ~s created\n", [VaultTag]),
+            Record = io_lib:format("bucket ~s created\n", [Bucket]),
             ok = file:write(IoDevice, list_to_binary(Record)),
             ok = file:close(IoDevice)
     end.
 
-% Upload a single archive file to the named vault, retrying as needed.
-upload_archive(Archive, Desc, VaultTag) ->
+% Upload a single file to the named bucket, retrying as needed.
+upload_object(Filename, Bucket) ->
     case application:get_env(akashita, test_log) of
         undefined ->
-            Env = build_aws_env(),
+            Env = build_gcloud_env(),
             PrivPath = code:priv_dir(akashita),
-            Cmd = filename:join(PrivPath, "klutlan"),
-            Args = ["-upload", Archive, "-desc", Desc, "-vault", VaultTag],
+            Cmd = filename:join(PrivPath, "akashita"),
+            Args = ["-upload", Filename, "-bucket", Bucket],
             Port = erlang:open_port({spawn_executable, Cmd},
                 [exit_status, {args, Args}, {env, Env}]),
             case wait_for_port(Port) of
                 {ok, 0} -> ok;
                 {ok, _C} ->
                     % keep trying until it works or we get an error
-                    upload_archive(Archive, Desc, VaultTag);
+                    upload_object(Filename, Bucket);
                 {error, Reason} ->
-                    lager:error("upload archive ~s failed, ~s", [Archive, Reason]),
+                    lager:error("upload file ~s failed, ~s", [Filename, Reason]),
                     error(Reason)
             end;
         {ok, LogFile} ->
             % in test mode, write to a log file
             {ok, IoDevice} = file:open(LogFile, [append]),
-            Record = io_lib:format("archive ~s uploaded to ~s\n", [Archive, VaultTag]),
+            Record = io_lib:format("file ~s uploaded to ~s\n", [Filename, Bucket]),
             ok = file:write(IoDevice, list_to_binary(Record)),
             ok = file:close(IoDevice)
     end.
@@ -114,7 +116,7 @@ upload_archive(Archive, Desc, VaultTag) ->
 % name, and Dataset is the name of the zfs dataset for which a snapshot
 % will be created. Returns {ok, SnapshotName} on success.
 ensure_snapshot_exists(Name, Dataset, Config) ->
-    Snapshot = io_lib:format("~s@glacier:~s", [Dataset, Name]),
+    Snapshot = io_lib:format("~s@akashita:~s", [Dataset, Name]),
     case os:find_executable("zfs") of
         false ->
             lager:info("missing 'zfs' in PATH"),
@@ -180,57 +182,57 @@ destroy_dataset(Dataset, Config) ->
             ok
     end.
 
-% Ensure the archives are created for the named Vault, with the Tag as the
-% suffix of the working directory where the archives will be created. The
+% Ensure the objects are created for the named Bucket, with the Tag as the
+% suffix of the working directory where the objects will be created. The
 % Config is a proplist taken from the application configuration. Returns
-% the path of the generated archives.
-ensure_archives(Vault, Tag, Config) ->
+% the path of the generated objects.
+ensure_objects(Bucket, Tag, Config) ->
     WorkDir = proplists:get_value(tmpdir, Config),
-    ArchiveDir = filename:join(WorkDir, Vault ++ "-" ++ Tag),
-    CreateArchives = fun() ->
-        VaultList = proplists:get_value(vaults, Config),
-        VaultConf = proplists:get_value(Vault, VaultList),
+    ObjectDir = filename:join(WorkDir, Bucket ++ "-" ++ Tag),
+    CreateObjects = fun() ->
+        BucketList = proplists:get_value(buckets, Config),
+        BucketConf = proplists:get_value(Bucket, BucketList),
         SplitSize = proplists:get_value(split_size, Config, "64M"),
         DefaultExcludes = proplists:get_value(default_excludes, Config, []),
-        create_archives(Vault, ArchiveDir, SplitSize, VaultConf, DefaultExcludes)
+        create_objects(Bucket, ObjectDir, SplitSize, BucketConf, DefaultExcludes)
     end,
-    EnsureArchives = fun() ->
-        case file:list_dir(ArchiveDir) of
+    EnsureObjects = fun() ->
+        case file:list_dir(ObjectDir) of
             {error, enoent} ->
-                ok = filelib:ensure_dir(ArchiveDir),
-                ok = file:make_dir(ArchiveDir),
-                CreateArchives();
-            {ok, []} -> CreateArchives();
+                ok = filelib:ensure_dir(ObjectDir),
+                ok = file:make_dir(ObjectDir),
+                CreateObjects();
+            {ok, []} -> CreateObjects();
             {ok, _Filenames} -> ok  % files exist, nothing to do
         end
     end,
-    % ensure the target directory exists, and if it is empty, create the archives
-    try EnsureArchives() of
-        ok -> ArchiveDir
+    % ensure the target directory exists, and if it is empty, create the objects
+    try EnsureObjects() of
+        ok -> ObjectDir
     catch
         error:Error ->
-            lager:error("error creating archives: ~w", [Error]),
-            os:cmd("rm -rf " ++ ArchiveDir),
+            lager:error("error creating objects: ~w", [Error]),
+            os:cmd("rm -rf " ++ ObjectDir),
             error(Error)
     end.
 
-% Produce the tar archives (split into reasonably sized files) for the list
+% Produce the tar objects (split into reasonably sized files) for the list
 % of 'paths' defined in the Options proplist (relative to the 'dataset'
 % directory, also defined in Options), with the split files having the
-% given Vault name as a prefix. The split files will be created in the
+% given Bucket name as a prefix. The split files will be created in the
 % SplitDir directory.
-create_archives(Vault, SplitDir, SplitSize, Options, DefaultExcludes) ->
-    lager:info("generating tar archives..."),
+create_objects(Bucket, SplitDir, SplitSize, Options, DefaultExcludes) ->
+    lager:info("generating tar files..."),
     Paths = proplists:get_value(paths, Options),
     SourceDir = "/" ++ proplists:get_value(dataset, Options),
     Compress = proplists:get_bool(compress, Options),
     Exclusions = proplists:get_value(excludes, Options, DefaultExcludes),
     TarCmd = string:join(tar_cmd(SourceDir, Paths, Compress, Exclusions), " "),
-    SplitCmd = string:join(split_cmd(Vault, SplitSize), " "),
+    SplitCmd = string:join(split_cmd(Bucket, SplitSize), " "),
     ScriptCmd = generate_tar_split_script(TarCmd, SplitCmd, SplitDir),
     ScriptPort = erlang:open_port({spawn, ScriptCmd}, [exit_status]),
     {ok, 0} = wait_for_port(ScriptPort),
-    lager:info("tar archive creation complete"),
+    lager:info("tar file creation complete"),
     ok.
 
 % Generate the command to invoke tar for the given set of file paths.
@@ -341,9 +343,9 @@ add_sudo_if_needed(Cmd, Args, Config) ->
     end.
 
 % Return an environment mapping (list of name/value tuple pairs) suitable
-% for use with the AWS client (as invoked via erlang:open_port/2). Reads
-% the various AWS settings from the application environment.
-build_aws_env() ->
+% for use with the Google Cloud client (as invoked via erlang:open_port/2).
+% Reads the various settings from the application environment.
+build_gcloud_env() ->
     SetEnv = fun({AppEnvName, OsEnvName}, Acc) ->
         case application:get_env(akashita, AppEnvName) of
             undefined -> Acc;
@@ -351,8 +353,6 @@ build_aws_env() ->
         end
     end,
     SupportedSettings = [
-        {aws_region, "AWS_REGION"},
-        {aws_access_key_id, "AWS_ACCESS_KEY_ID"},
-        {aws_secret_access_key, "AWS_SECRET_ACCESS_KEY"}
+        {gcp_credentials, "GOOGLE_APPLICATION_CREDENTIALS"}
     ],
     lists:foldl(SetEnv, [], SupportedSettings).
