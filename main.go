@@ -44,13 +44,29 @@ func fatal(v ...interface{}) {
 	os.Exit(1)
 }
 
-// createBucket creates the named bucket within the given project.
+// createBucket creates the named bucket within the given project. If the bucket
+// already exists, nothing is done.
 func createBucket(location, project, bucket string) {
 	ctx := context.Background()
 	client, err := storage.NewClient(ctx)
 	if err != nil {
 		fatal(err)
 	}
+	// check if the bucket already exists
+	iter := client.Buckets(ctx, project)
+	for {
+		attrs, err := iter.Next()
+		if err == storage.Done {
+			break
+		} else if err != nil {
+			fatal(err)
+		}
+		if attrs.Name == bucket {
+			// already exists, nothing to do
+			return
+		}
+	}
+	// bucket apparently does not exist, create it
 	bucket_handle := client.Bucket(bucket)
 	attrs := &storage.BucketAttrs{
 		Name:         bucket,
