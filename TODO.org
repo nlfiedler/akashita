@@ -1,8 +1,9 @@
 * akashita TODO
 
   ** Migrate to Google Cloud Storage
-    - [ ] Rewrite klutlan to use Google Cloud Storage API
+    - [X] Rewrite klutlan to use Google Cloud Storage API
     - [ ] Replace "klutlan" with "akashita"
+    - [ ] GOOGLE_APPLICATION_CREDENTIALS must be set in env when invoking `akashita`
     - [ ] Update the rebar.config for building go code
     - [ ] Rename "vault" to "bucket"
     - [ ] Rename "archive" to "object"

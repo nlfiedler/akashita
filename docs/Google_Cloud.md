@@ -27,11 +27,18 @@
 1. Put the *.json file you just downloaded in a directory of your choosing. This directory must be private (you can't let anyone get access to this), but accessible to your web server code.
 1. Set the environment variable `GOOGLE_APPLICATION_CREDENTIALS` to the path of the JSON file downloaded.
 
+### Debugging
+
+Files within `.config/gcloud/`, as well as the `.gsutil/credstore` file, inform the client library as to how to connect to the Google Cloud Platform. Move these files out of the way when attempting to use the `GOOGLE_APPLICATION_CREDENTIALS` environment variable.
+
 ## Client Library
 
 ### Installation for Go
 
+Somehow neither one of the packages below is sufficient, both of them are needed.
+
 ```
+$ go get google.golang.org/cloud
 $ go get cloud.google.com/go
 ```
 
