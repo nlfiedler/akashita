@@ -1,15 +1,22 @@
 # Google Cloud
 
-## Source
+## Source Code
 
 * https://code.googlesource.com/gocloud
 
-## Locations
+## Storage Locations
 
 * Multi-region: "us"
     - Better availability geographically
 * Regional: "us-west1"
     - Better performance within that region
+
+## Initial Setup
+
+1. Visit https://console.cloud.google.com/ and create a new project.
+1. Note the "Project ID" and set that in the application configuration file (`gcp_project`).
+    * The application configuration file is described in the `README`.
+1. Create an application default credentials file, as described below; save the file somewhere safe, and set the path in the application configuration (`gcp_credentials`).
 
 ## Authentication
 
@@ -35,7 +42,8 @@ Files within `.config/gcloud/`, as well as the `.gsutil/credstore` file, inform 
 
 ### Installation for Go
 
-Somehow neither one of the packages below is sufficient, both of them are needed.
+Somehow neither one of the packages below is sufficient, both of them are needed. The `rebar.config`
+file will automatically install these as needed.
 
 ```
 $ go get google.golang.org/cloud
