@@ -68,8 +68,8 @@ ensure_bucket_created(Bucket) ->
     case application:get_env(akashita, test_log) of
         undefined ->
             Env = build_gcloud_env(),
-            Location = application:get_env(akashita, gcs_region),
-            Project = application:get_env(akashita, gcp_project),
+            {ok, Location} = application:get_env(akashita, gcs_region),
+            {ok, Project} = application:get_env(akashita, gcp_project),
             PrivPath = code:priv_dir(akashita),
             Cmd = filename:join(PrivPath, "akashita"),
             Args = ["-create", "-bucket", Bucket, "-location", Location, "-project", Project],
@@ -274,23 +274,30 @@ split_cmd(Prefix, SplitSize) ->
 generate_tar_split_script(TarCmd, SplitCmd, SplitDir) ->
     % Let the shell do the pipelining for us, as it seems rather difficult
     % to do so in Erlang, without eventually running out of memory. It
-    % should use the pipestatus as its own exit code.
-    Cmds = [
-        "#!/bin/sh",
-        "cd " ++ SplitDir,
-        TarCmd ++ " | " ++ SplitCmd,
-        "exit ${PIPESTATUS[0]}",
-        % ensure the last line ends with a newline
-        ""
-    ],
-    PrivPath = code:priv_dir(akashita),
-    ScriptPath = filename:join(PrivPath, "tar_split.sh"),
-    {ok, IoDevice} = file:open(ScriptPath, [write]),
-    ScriptText = string:join(Cmds, "\n"),
-    ok = file:write(IoDevice, list_to_binary(ScriptText)),
-    ok = file:close(IoDevice),
-    ok = file:write_file_info(ScriptPath, #file_info{mode=8#00755}),
-    ScriptPath.
+    % should use the pipestatus as its own exit code. Note that we return
+    % the PIPESTATUS, which requires using bash.
+    case os:find_executable("bash", "/bin:/usr/bin:/usr/local/bin") of
+        false ->
+            lager:info("cannot find 'bash' in /bin:/usr/bin:/usr/local/bin"),
+            error(missing_bash);
+        Bash ->
+            Cmds = [
+                "#!" ++ Bash,
+                "cd " ++ SplitDir,
+                TarCmd ++ " | " ++ SplitCmd,
+                "exit ${PIPESTATUS[0]}",
+                % ensure the last line ends with a newline
+                ""
+            ],
+            PrivPath = code:priv_dir(akashita),
+            ScriptPath = filename:join(PrivPath, "tar_split.sh"),
+            {ok, IoDevice} = file:open(ScriptPath, [write]),
+            ScriptText = string:join(Cmds, "\n"),
+            ok = file:write(IoDevice, list_to_binary(ScriptText)),
+            ok = file:close(IoDevice),
+            ok = file:write_file_info(ScriptPath, #file_info{mode=8#00755}),
+            ScriptPath
+    end.
 
 % Wait for the given Port to complete and return the exit code in the form
 % of {ok, Status}. Any output received is written to the log. If the port
