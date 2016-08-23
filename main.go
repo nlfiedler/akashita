@@ -18,7 +18,9 @@
 package main
 
 import (
+	"bytes"
 	"cloud.google.com/go/storage"
+	"crypto/md5"
 	"flag"
 	"fmt"
 	"golang.org/x/net/context"
@@ -118,6 +120,22 @@ func listObjects(bucket string) {
 	}
 }
 
+// computeMD5 reads the given file and computes the MD5 checksum, returning the
+// result. If an error occurs, it will be returned.
+func computeMD5(filepath string) ([]byte, error) {
+	var result []byte
+	infile, err := os.Open(filepath)
+	if err != nil {
+		return result, err
+	}
+	defer infile.Close()
+	hash := md5.New()
+	if _, err := io.Copy(hash, infile); err != nil {
+		return result, err
+	}
+	return hash.Sum(result), nil
+}
+
 // uploadObject uploads the named file to the given bucket.
 func uploadObject(bucket, filename string) {
 	ctx := context.Background()
@@ -136,6 +154,34 @@ func uploadObject(bucket, filename string) {
 	_, err = io.Copy(wc, infile)
 	if err != nil {
 		fatal(err)
+	}
+}
+
+// uploadAndVerifyObject computes the MD5 checksum of the named file, then
+// uploads it, and then retrieves the MD5 checksum provided by the cloud
+// service. If the two checksums do not match, print an error and exit.
+func uploadAndVerifyObject(bucket, filename string) {
+	checksum, err := computeMD5(filename)
+	if err != nil {
+		fatal(err)
+	}
+	// we delegate to this function to ensure the file is properly closed and
+	// the object store is finalized, otherwise we cannot retrieve its attrs
+	uploadObject(bucket, filename)
+	// yes, a bunch of redundant code here, just to avoid closing the file
+	// manually while also leveraging the defer feature
+	ctx := context.Background()
+	client, err := storage.NewClient(ctx)
+	if err != nil {
+		fatal(err)
+	}
+	object := path.Base(filename)
+	attrs, err := client.Bucket(bucket).Object(object).Attrs(ctx)
+	if err != nil {
+		fatal(err)
+	}
+	if !bytes.Equal(attrs.MD5, checksum) {
+		fatal("MD5 checksum does not match for %v", filename)
 	}
 }
 
@@ -241,7 +287,7 @@ func main() {
 		if *bucket == "" {
 			fatal("missing required -bucket argument")
 		}
-		uploadObject(*bucket, *upload)
+		uploadAndVerifyObject(*bucket, *upload)
 	} else if *remove {
 		if *bucket == "" {
 			fatal("missing required -bucket argument")
