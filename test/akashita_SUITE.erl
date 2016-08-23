@@ -48,7 +48,7 @@ end_per_suite(_Config) ->
     ok = application:stop(mnesia).
 
 all() ->
-    [
+    Tests = [
         is_go_time_test,
         ensure_objects_test,
         ensure_snapshot_exists_test,
@@ -57,7 +57,11 @@ all() ->
         retrieve_tag_test,
         bucket_completed_test,
         process_uploads_test
-    ].
+    ],
+    case os:getenv("AKASHITA_LIVE_TEST") of
+        false -> Tests;
+        _Set  -> Tests ++ [process_uploads_live_test]
+    end.
 
 %% Test the is_go_time/3 function.
 is_go_time_test(_Config) ->
@@ -157,8 +161,7 @@ ensure_objects_test(_Config) ->
 ensure_snapshot_exists_test(Config) ->
     case os:find_executable("zfs") of
         false ->
-            ct:log("missing 'zfs' in PATH, skipping test..."),
-            ok;
+            error("missing 'zfs' in PATH");
         _ZfsBin ->
             PrivDir = ?config(priv_dir, Config),
             FSFile = filename:join(PrivDir, "tank_file"),
@@ -201,8 +204,7 @@ verify_split_files(SplitsDir, Prefix) ->
 ensure_clone_exists_test(Config) ->
     case os:find_executable("zfs") of
         false ->
-            ct:log("missing 'zfs' in PATH, skipping test..."),
-            ok;
+            error("missing 'zfs' in PATH");
         _ZfsBin ->
             PrivDir = ?config(priv_dir, Config),
             FSFile = filename:join(PrivDir, "tank_file"),
@@ -227,8 +229,7 @@ ensure_clone_exists_test(Config) ->
 destroy_dataset_test(Config) ->
     case os:find_executable("zfs") of
         false ->
-            ct:log("missing 'zfs' in PATH, skipping test..."),
-            ok;
+            error("missing 'zfs' in PATH");
         _ZfsBin ->
             PrivDir = ?config(priv_dir, Config),
             FSFile = filename:join(PrivDir, "tank_file"),
@@ -278,8 +279,7 @@ bucket_completed_test(_Config) ->
 process_uploads_test(Config) ->
     case os:find_executable("zfs") of
         false ->
-            ct:log("missing 'zfs' in PATH, skipping test..."),
-            ok;
+            error("missing 'zfs' in PATH");
         _ZfsBin ->
             PrivDir = ?config(priv_dir, Config),
             FSFile = filename:join(PrivDir, "tank_file"),
@@ -362,6 +362,82 @@ process_uploads_test(Config) ->
             ok = file:delete(FSFile)
     end.
 
+% Test the full backup process, including uploading content to the cloud.
+process_uploads_live_test(Config) ->
+    case os:find_executable("zfs") of
+        false ->
+            error("missing 'zfs' in PATH"),
+            ok;
+        _ZfsBin ->
+            PrivDir = ?config(priv_dir, Config),
+            FSFile = filename:join(PrivDir, "tank_file"),
+            mkfile(FSFile),
+            % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind.
+            % Specify a mount point to avoid unexpected defaults (e.g. ZFS on Mac).
+            ?assertCmd("sudo zpool create -m /panzer panzer " ++ FSFile),
+            ?assertCmd("sudo zfs create panzer/shared"),
+            ?assertCmd("sudo chmod 777 /panzer/shared"),
+            ?assertCmd("sudo zfs create panzer/photos"),
+            ?assertCmd("sudo chmod 777 /panzer/photos"),
+            Cwd = os:getenv("PWD"),
+            % copy everything except the logs which contains our 64MB file
+            % (and priv contains the giant Go binary)
+            ?assertCmd("rsync --exclude=logs --exclude=priv -r " ++ Cwd ++ "/* /panzer/shared"),
+            % copy something to the photos "bucket", that will result in a single object
+            {ok, _BC} = file:copy(filename:join(Cwd, "test/akashita_SUITE.erl"),
+                "/panzer/photos/akashita_SUITE.erl"),
+            % application already loaded...
+            % ok = application:load(akashita),
+            % set application environment to backup data to the cloud
+            ok = application:unset_env(akashita, test_log),
+            ok = application:set_env(akashita, gcs_region, get_env("GCS_REGION")),
+            ok = application:set_env(akashita, gcp_project, get_env("GCP_PROJECT")),
+            ok = application:set_env(akashita, gcp_credentials, get_env("GCP_CREDENTIALS")),
+            ok = application:set_env(akashita, use_sudo, true),
+            ok = application:set_env(akashita, tmpdir, PrivDir),
+            ok = application:set_env(akashita, go_times, ["00:00-23:59"]),
+            ok = application:set_env(akashita, split_size, "256K"),
+            % ignore the bothersome special directories and files
+            ok = application:set_env(akashita, default_excludes, ?DEFAULT_EXCLUDES),
+            BucketsConf = [
+                {"shared", [
+                    {dataset, "panzer/shared"},
+                    {clone_base, "panzer/akashita"},
+                    {paths, ["."]},
+                    {compressed, false}
+                ]},
+                {"photos", [
+                    {dataset, "panzer/photos"},
+                    {clone_base, "panzer/akashita"},
+                    {paths, ["."]},
+                    {compressed, true}
+                ]}
+            ],
+            ok = application:set_env(akashita, buckets, BucketsConf),
+            % fire up the application and wait for it to finish
+            {ok, _Started} = application:ensure_all_started(akashita),
+            ok = gen_server:call(akashita_backup, test_backup),
+            wait_for_backup_to_finish(),
+            % verify that the objects were uploaded
+            Tag = akashita_app:retrieve_tag(),
+            SharedObjects = list_bucket("shared" ++ "-" ++ Tag),
+            ?assert(length(SharedObjects) > 10),
+            ?assertEqual("shared00000", hd(SharedObjects)),
+            PhotosObjects = list_bucket("photos" ++ "-" ++ Tag),
+            ?assertEqual(1, length(PhotosObjects)),
+            ?assertEqual("photos00000", hd(PhotosObjects)),
+            ?assertCmd("sudo zpool destroy panzer"),
+            ok = file:delete(FSFile)
+    end.
+
+% Retrieve an environment variable, ensuring it is defined.
+get_env(Name) ->
+    case os:getenv(Name) of
+        false ->
+            error(lists:flatten(io_lib:format("must define ~p environment variable", [Name])));
+        Value -> Value
+    end.
+
 % Run the mkfile command (or its Linux equivalent) to create a temporary
 % filesytem for ZFS to use as a storage pool.
 mkfile(FSFile) ->
@@ -383,3 +459,15 @@ wait_for_backup_to_finish() ->
     receive
         backup_finished -> ok
     end.
+
+% Retrieve the contents of the named Bucket as a list of strings.
+list_bucket(Bucket) ->
+    {ok, Credentials} = application:get_env(akashita, gcp_credentials),
+    Env = "GOOGLE_APPLICATION_CREDENTIALS=" ++ Credentials,
+    Akashita = filename:join(code:priv_dir(akashita), "akashita"),
+    Cmd = Env ++ " " ++ Akashita ++ " -objects -bucket " ++ Bucket,
+    ct:log(default, 50, "list bucket: ~s", [Cmd]),
+    Buckets = os:cmd(Cmd),
+    Results = re:split(Buckets, "\n", [{return, list}]),
+    % filter out any blank lines
+    lists:filter(fun(Elem) -> length(Elem) > 0 end, Results).

@@ -1,14 +1,5 @@
 * akashita TODO
 
-  ** Migrate to Google Cloud Storage
-    - [X] Rewrite klutlan to use Google Cloud Storage API
-    - [X] Replace "klutlan" with "akashita"
-    - [X] GOOGLE_APPLICATION_CREDENTIALS must be set in env when invoking `akashita`
-    - [X] Update the rebar.config for building go code
-    - [X] Rename "vault" to "bucket"
-    - [X] Rename "archive" to "object"
-    - [ ] Consider verifying uploads by getting object attrs and comparing its MD5
-
   ** Batch Emails
     - [ ] Send email when a batch of uploads has completed, with metrics
       - Only if an email address is configured (none when testing)
