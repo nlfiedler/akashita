@@ -132,6 +132,7 @@ func uploadObject(bucket, filename string) {
 	if err != nil {
 		fatal(err.Error())
 	}
+	defer infile.Close()
 	_, err = io.Copy(wc, infile)
 	if err != nil {
 		fatal(err)
@@ -155,6 +156,7 @@ func fetchObject(bucket, object string) {
 	if err != nil {
 		fatal(err)
 	}
+	defer tmpfile.Close()
 	_, err = io.Copy(tmpfile, rc)
 	if err != nil {
 		fatal(err)
