@@ -60,3 +60,7 @@ The first time the application is started it will begin backing up as soon as it
 ```
 $ erl -noshell -sname backup@localhost -eval "rpc:call(akashita@localhost, gen_server, call, [akashita_backup, begin_backup]), init:stop()."
 ```
+
+## Amazon Glacier
+
+At an earlier time, this project was coded to upload files to Amazon Glacier. It was decided that Google Cloud Storage was a better option, primarily due to the responsiveness and affordability of the "nearline" storage class. The last commit in which this project supported Glacier is `4711edb7af7f9f8bd8a065c78abf8f12ded1c29f`.
