@@ -104,10 +104,8 @@ ensure_schema(Nodes) ->
 % Ensure the mnesia application is running on all nodes.
 ensure_mnesia(Nodes) ->
     case mnesia:system_info(is_running) of
-        no ->
-            rpc:multicall(Nodes, application, start, [mnesia]);
-        _ ->
-            ok
+        no -> rpc:multicall(Nodes, application, start, [mnesia]);
+        _ -> ok
     end.
 
 % Retrieve (or compute) the tag used in naming various elements, such as
@@ -117,10 +115,10 @@ retrieve_tag() ->
         case mnesia:read(akashita_tag, ?THE_TAG) of
             [] ->
                 {{Year, Month, Day}, {_Hour, _Min, _Sec}} = calendar:local_time(),
-                ValueHilly = io_lib:format("~4.10.0B-~2.10.0B-~2.10.0B", [Year, Month, Day]),
-                ValueFlat = lists:flatten(ValueHilly),
-                ok = mnesia:write(#akashita_tag{key=?THE_TAG, value=ValueFlat}),
-                ValueFlat;
+                ValueRaw = io_lib:format("~4.10.0B-~2.10.0B-~2.10.0B", [Year, Month, Day]),
+                ValueFlattened = lists:flatten(ValueRaw),
+                ok = mnesia:write(#akashita_tag{key=?THE_TAG, value=ValueFlattened}),
+                ValueFlattened;
             [Tag] -> Tag#akashita_tag.value
         end
     end,
@@ -131,8 +129,7 @@ retrieve_tag() ->
 is_bucket_completed(Bucket) ->
     F = fun() ->
         case mnesia:read(akashita_buckets, Bucket) of
-            [] ->
-                false;
+            [] -> false;
             [_Row] -> true
         end
     end,
