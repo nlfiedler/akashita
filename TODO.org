@@ -1,5 +1,10 @@
 * akashita TODO
 
+  ** Bucket names
+    - Should use some unique prefix (e.g. uuid1)
+      - https://cloud.google.com/storage/docs/naming
+      - https://github.com/avtobiff/erlang-uuid/blob/master/src/uuid.erl
+
   ** Batch Emails
     - [ ] Send email when a batch of uploads has completed, with metrics
       - Only if an email address is configured (none when testing)
