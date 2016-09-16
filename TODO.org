@@ -1,9 +1,7 @@
 * akashita TODO
 
-  ** Bucket names
-    - Should use some unique prefix (e.g. uuid1)
-      - https://cloud.google.com/storage/docs/naming
-      - https://github.com/avtobiff/erlang-uuid/blob/master/src/uuid.erl
+  ** Reliability
+    - [ ] Allow configuring location of mnesia data, so it can be on reliable media
 
   ** Batch Emails
     - [ ] Send email when a batch of uploads has completed, with metrics

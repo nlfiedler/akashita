@@ -76,13 +76,15 @@ ensure_bucket_created(Bucket) ->
             Port = erlang:open_port({spawn_executable, Cmd},
                 [exit_status, {args, Args}, {env, Env}]),
             {ok, 0} = wait_for_port(Port),
+            lager:info("created bucket ~s", [Bucket]),
             ok;
         {ok, LogFile} ->
             % in test mode, write to a log file
             {ok, IoDevice} = file:open(LogFile, [append]),
             Record = io_lib:format("bucket ~s created\n", [Bucket]),
             ok = file:write(IoDevice, list_to_binary(Record)),
-            ok = file:close(IoDevice)
+            ok = file:close(IoDevice),
+            lager:info("created fake bucket ~s", [Bucket])
     end.
 
 % Upload a single file to the named bucket, retrying as needed.

@@ -175,7 +175,7 @@ process_one_object(undefined) ->
 process_one_object(Bucket) ->
     AppConfig = application:get_all_env(akashita),
     Tag = akashita_app:retrieve_tag(),
-    BucketName = Bucket ++ "-" ++ Tag,
+    BucketName = akashita_app:retrieve_bucket_name(Bucket, Tag),
     BucketList = proplists:get_value(buckets, AppConfig),
     BucketConf = proplists:get_value(Bucket, BucketList),
     Dataset = proplists:get_value(dataset, BucketConf),

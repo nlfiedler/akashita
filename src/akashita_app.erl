@@ -24,7 +24,8 @@
 -module(akashita_app).
 -behaviour(application).
 -export([start/2, stop/1, ensure_schema/1]).
--export([retrieve_tag/0, is_bucket_completed/1, remember_completed_bucket/1]).
+-export([retrieve_tag/0, retrieve_bucket_name/2]).
+-export([is_bucket_completed/1, remember_completed_bucket/1]).
 -export([delete_cache/0]).
 
 % The tag table only has one entry, the previous computed tag.
@@ -34,9 +35,12 @@
 -define(THE_TAG, the_tag).
 
 % The buckets table has one row per completed bucket. The key is the bucket
-% name, and the value is unused.
--record(akashita_buckets, {name  :: string(),
-                           value :: term()}).
+% name, and the cloud_name is what the bucket is called in the cloud (i.e.
+% it is a unique name). The completed field indicates that the bucket has
+% been finished and needs no further processing.
+-record(akashita_buckets, {name       :: string(),
+                           cloud_name :: string(),
+                           completed  :: term()}).
 
 start(_Type, _Args) ->
     NodeList = [node()],
@@ -99,7 +103,8 @@ ensure_schema(Nodes) ->
             rpc:multicall(Nodes, application, stop, [mnesia]);
         _ ->
             EnsureTables()
-    end.
+    end,
+    lager:info("created mnesia tables").
 
 % Ensure the mnesia application is running on all nodes.
 ensure_mnesia(Nodes) ->
@@ -118,6 +123,7 @@ retrieve_tag() ->
                 ValueRaw = io_lib:format("~4.10.0B-~2.10.0B-~2.10.0B", [Year, Month, Day]),
                 ValueFlattened = lists:flatten(ValueRaw),
                 ok = mnesia:write(#akashita_tag{key=?THE_TAG, value=ValueFlattened}),
+                lager:info("generated backup tag ~s", [ValueFlattened]),
                 ValueFlattened;
             [Tag] -> Tag#akashita_tag.value
         end
@@ -130,7 +136,40 @@ is_bucket_completed(Bucket) ->
     F = fun() ->
         case mnesia:read(akashita_buckets, Bucket) of
             [] -> false;
+            [Row] when Row#akashita_buckets.completed =:= undefined -> false;
             [_Row] -> true
+        end
+    end,
+    mnesia:activity(transaction, F).
+
+% Retrieve (or compute) the cloud version of the configured Bucket. This
+% name will be globally unique and suitable for the cloud storage system.
+% The Tag argument should be the value returned from retrieve_tag/0.
+%
+% If the bucket name has not yet been computed, it is also assumed the
+% bucket has not completed processing, and hence will not be marked as
+% such in the database.
+retrieve_bucket_name(Bucket, Tag) ->
+    F = fun() ->
+        case mnesia:read(akashita_buckets, Bucket) of
+            [] ->
+                %
+                % Google Cloud Storage bucket naming conventions call for
+                % lowercase letters, avoiding underscores, using dots to
+                % separate parts of the name, as well as being globally
+                % unique. As such, compute a SHA1 of several pieces of
+                % information that are unlikely to appear elsewhere and use
+                % that as the prefix to the desired bucket name.
+                %
+                % See https://cloud.google.com/storage/docs/naming
+                %
+                Dotless = string:to_lower(re:replace(Bucket, "\\.", "_", [global])),
+                Uuid1 = inugami:to_string(compact, inugami:uuid1()),
+                NewName = lists:flatten(io_lib:format("~s-~s-~s", [Uuid1, Dotless, Tag])),
+                ok = mnesia:write(#akashita_buckets{name=Bucket, cloud_name=NewName}),
+                lager:info("generated bucket name ~s", [NewName]),
+                NewName;
+            [Row] -> Row#akashita_buckets.cloud_name
         end
     end,
     mnesia:activity(transaction, F).
@@ -139,14 +178,22 @@ is_bucket_completed(Bucket) ->
 % is_bucket_completed/1 is called, it will return true.
 remember_completed_bucket(Bucket) ->
     F = fun() ->
+        Row = case mnesia:wread({akashita_buckets, Bucket}) of
+            [] ->
+                % This only comes up in the unit tests, just generate the
+                % missing information for the record.
+                #akashita_buckets{name=Bucket, cloud_name="cumulus"};
+            [R] -> R
+        end,
         Value = calendar:local_time(),
-        ok = mnesia:write(#akashita_buckets{name=Bucket, value=Value})
+        ok = mnesia:write(Row#akashita_buckets{completed=Value})
     end,
     mnesia:activity(transaction, F).
 
 % All backup processing has successfully completed, wipe out all cached
 % data, such as the computed tag and the set of completed buckets.
 delete_cache() ->
+    lager:info("clearing cached mnesia data"),
     {atomic, ok} = mnesia:clear_table(akashita_buckets),
     {atomic, ok} = mnesia:clear_table(akashita_tag),
     ok.

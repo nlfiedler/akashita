@@ -339,25 +339,33 @@ process_uploads_test(Config) ->
             {ok, BackupBin} = file:read_file(BackupLog),
             BackupText = binary_to_list(BackupBin),
             Tag = akashita_app:retrieve_tag(),
-            % check for the buckets..
+            % check that the buckets were created...
             BucketNames = proplists:get_keys(BucketsConf),
-            BucketTags = [Name ++ "-" ++ Tag || Name <- BucketNames],
-            FindBucketsCreated = fun(BucketTag) ->
-                E = lists:flatten(io_lib:format("bucket ~s created", [BucketTag])),
-                ?assert(string:str(BackupText, E) > 0)
+            BucketRegexs = [bucket_regex(Name, Tag) || Name <- BucketNames],
+            FindBucketsCreated = fun(BucketRegex) ->
+                ?assert(case re:run(BackupText, BucketRegex) of
+                    {match, _Captured} -> true;
+                    nomatch -> false
+                end)
             end,
-            lists:foreach(FindBucketsCreated, BucketTags),
-            % check for the objects ...
+            lists:foreach(FindBucketsCreated, BucketRegexs),
+            % check that the objects were uploaded...
             SharedObjects = [lists:flatten(io_lib:format("shared~5.10.0B", [I])) || I <- lists:seq(1, 10)],
-            SharedTag = "shared-" ++ Tag,
             FindObjectsUploaded = fun(ObjectName) ->
-                E = lists:flatten(io_lib:format("~s uploaded to ~s", [ObjectName, SharedTag])),
-                ?assert(string:str(BackupText, E) > 0)
+                E = lists:flatten(io_lib:format("~s uploaded to \\w{32}-shared-~s", [ObjectName, Tag])),
+                ?assert(case re:run(BackupText, E) of
+                    {match, _Captured} -> true;
+                    nomatch -> false
+                end)
             end,
             lists:foreach(FindObjectsUploaded, SharedObjects),
             % check that only one photos object was uploaded
-            ?assertEqual(0, string:str(BackupText, lists:flatten(
-                io_lib:format("photos00001 uploaded to photos-~s", [Tag])))),
+            Regex1 = io_lib:format("photos00001 uploaded to \\w{32}-photos-~s", [Tag]),
+            ?assert(case re:run(BackupText, lists:flatten(Regex1)) of
+                % should _not_ match...
+                {match, _Captured} -> false;
+                nomatch -> true
+            end),
             ?assertCmd("sudo zpool destroy panzer"),
             ok = file:delete(FSFile)
     end.
@@ -417,13 +425,16 @@ process_uploads_live_test(Config) ->
             % fire up the application and wait for it to finish
             {ok, _Started} = application:ensure_all_started(akashita),
             ok = gen_server:call(akashita_backup, test_backup),
+            % while that's running, get the cloud names of the buckets
+            Tag = akashita_app:retrieve_tag(),
+            SharedRemoteName = akashita_app:retrieve_bucket_name("shared", Tag),
+            PhotosRemoteName = akashita_app:retrieve_bucket_name("photos", Tag),
             wait_for_backup_to_finish(),
             % verify that the objects were uploaded
-            Tag = akashita_app:retrieve_tag(),
-            SharedObjects = list_bucket("shared" ++ "-" ++ Tag),
+            SharedObjects = list_bucket(SharedRemoteName),
             ?assert(length(SharedObjects) > 10),
             ?assertEqual("shared00000", hd(SharedObjects)),
-            PhotosObjects = list_bucket("photos" ++ "-" ++ Tag),
+            PhotosObjects = list_bucket(PhotosRemoteName),
             ?assertEqual(1, length(PhotosObjects)),
             ?assertEqual("photos00000", hd(PhotosObjects)),
             ?assertCmd("sudo zpool destroy panzer"),
@@ -471,3 +482,10 @@ list_bucket(Bucket) ->
     Results = re:split(Buckets, "\n", [{return, list}]),
     % filter out any blank lines
     lists:filter(fun(Elem) -> length(Elem) > 0 end, Results).
+
+% Produce a compiled regex to match the "created" log entry for the given
+% bucket and tag.
+bucket_regex(Bucket, Tag) ->
+    % UUID string representation (without dashes) is 32 characters long.
+    {ok, MP} = re:compile("bucket \\w{32}-" ++ Bucket ++ "-" ++ Tag ++ " created"),
+    MP.
