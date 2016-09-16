@@ -1,8 +1,5 @@
 * akashita TODO
 
-  ** Reliability
-    - [ ] Allow configuring location of mnesia data, so it can be on reliable media
-
   ** Batch Emails
     - [ ] Send email when a batch of uploads has completed, with metrics
       - Only if an email address is configured (none when testing)
