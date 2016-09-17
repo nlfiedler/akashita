@@ -219,14 +219,17 @@ is_backup_complete() ->
 
 % Find the next bucket that has not yet been processed, or undefined if none.
 next_eligible_bucket() ->
-    {ok, Buckets} = application:get_env(akashita, buckets),
-    BucketNames = proplists:get_keys(Buckets),
-    NotCompleted = fun(Name) ->
-        akashita_app:is_bucket_completed(Name) == false
-    end,
-    case lists:filter(NotCompleted, BucketNames) of
-        [] -> undefined;
-        [H|_T] -> H
+    case application:get_env(akashita, buckets) of
+        {ok, Buckets} ->
+            BucketNames = proplists:get_keys(Buckets),
+            NotCompleted = fun(Name) ->
+                akashita_app:is_bucket_completed(Name) == false
+            end,
+            case lists:filter(NotCompleted, BucketNames) of
+                [] -> undefined;
+                [H|_T] -> H
+            end;
+        undefined -> undefined
     end.
 
 % Start an interval timer to cast a 'get_to_work' message to the gen_server
