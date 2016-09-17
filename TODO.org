@@ -1,5 +1,8 @@
 * akashita TODO
 
+  ** Shell
+    - [ ] See if we can get `rebar3 shell` to start cleanly
+
   ** Batch Emails
     - [ ] Send email when a batch of uploads has completed, with metrics
       - Only if an email address is configured (none when testing)
