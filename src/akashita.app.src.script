@@ -33,6 +33,9 @@ App = [
         lager,
         mnesia
     ]},
+    {included_applications, [
+        inugami
+    ]},
     {mod, {akashita_app, []}},
     {env, AppEnv}
 ].
