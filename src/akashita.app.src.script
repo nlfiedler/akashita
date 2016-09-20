@@ -30,6 +30,7 @@ App = [
     {applications, [
         kernel,
         stdlib,
+        crypto,
         lager,
         mnesia
     ]},
