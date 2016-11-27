@@ -30,6 +30,7 @@
 -export([ensure_bucket_created/1, upload_object/2]).
 
 -include_lib("kernel/include/file.hrl").
+-include_lib("enenra/include/enenra.hrl").
 
 % Determine if given time falls within upload window(s). Windows is a list
 % of strings in HH:MM-HH:MM format. The hours are 24-hour. The times can
@@ -64,52 +65,55 @@ is_go_time(Windows, Hour, Minute)
     lists:any(InWindow, Windows).
 
 % Ensure the named bucket has been created.
-ensure_bucket_created(Bucket) ->
+ensure_bucket_created(BucketName) when is_list(BucketName) ->
+    ensure_bucket_created(list_to_binary(BucketName));
+ensure_bucket_created(BucketName) when is_binary(BucketName) ->
     case application:get_env(akashita, test_log) of
         undefined ->
-            Env = build_gcloud_env(),
+            Creds = retrieve_credentials(),
             {ok, Location} = application:get_env(akashita, gcs_region),
-            {ok, Project} = application:get_env(akashita, gcp_project),
-            PrivPath = code:priv_dir(akashita),
-            Cmd = filename:join(PrivPath, "akashita"),
-            Args = ["-create", "-bucket", Bucket, "-location", Location, "-project", Project],
-            Port = erlang:open_port({spawn_executable, Cmd},
-                [exit_status, {args, Args}, {env, Env}]),
-            {ok, 0} = wait_for_port(Port),
-            lager:info("created bucket ~s", [Bucket]),
-            ok;
+            InBucket = #bucket{
+                name = BucketName,
+                location = list_to_binary(Location),
+                storageClass = <<"NEARLINE">>
+            },
+            {ok, _Bucket} = enenra:insert_bucket(InBucket, Creds),
+            lager:info("created bucket ~s", [BucketName]);
         {ok, LogFile} ->
             % in test mode, write to a log file
             {ok, IoDevice} = file:open(LogFile, [append]),
-            Record = io_lib:format("bucket ~s created\n", [Bucket]),
+            Record = io_lib:format("bucket ~s created\n", [BucketName]),
             ok = file:write(IoDevice, list_to_binary(Record)),
             ok = file:close(IoDevice),
-            lager:info("created fake bucket ~s", [Bucket])
+            lager:info("created fake bucket ~s", [BucketName])
     end.
 
 % Upload a single file to the named bucket, retrying as needed.
-upload_object(Filename, Bucket) ->
+upload_object(Filename, BucketName) when is_list(BucketName) ->
+    upload_object(Filename, list_to_binary(BucketName));
+upload_object(Filename, BucketName) when is_binary(BucketName) ->
     case application:get_env(akashita, test_log) of
         undefined ->
-            Env = build_gcloud_env(),
-            PrivPath = code:priv_dir(akashita),
-            Cmd = filename:join(PrivPath, "akashita"),
-            Args = ["-upload", Filename, "-bucket", Bucket],
-            Port = erlang:open_port({spawn_executable, Cmd},
-                [exit_status, {args, Args}, {env, Env}]),
-            case wait_for_port(Port) of
-                {ok, 0} -> ok;
-                {ok, _C} ->
-                    % keep trying until it works or we get an error
-                    upload_object(Filename, Bucket);
+            Creds = retrieve_credentials(),
+            {ok, #file_info{size = Size}} = file:read_file_info(Filename),
+            {ok, Md5} = enenra:compute_md5(Filename),
+            InObject = #object{
+                name=list_to_binary(filename:basename(Filename)),
+                bucket=BucketName,
+                contentType = <<"application/octet-stream">>,
+                md5Hash=Md5,
+                size=Size
+            },
+            case enenra:upload_file(Filename, InObject, Creds) of
+                {ok, _Object} -> ok;
                 {error, Reason} ->
-                    lager:error("upload file ~s failed, ~s", [Filename, Reason]),
-                    error(Reason)
+                    lager:error("file ~s upload failed (temporarily), ~s", [Filename, Reason]),
+                    upload_object(Filename, BucketName)
             end;
         {ok, LogFile} ->
             % in test mode, write to a log file
             {ok, IoDevice} = file:open(LogFile, [append]),
-            Record = io_lib:format("file ~s uploaded to ~s\n", [Filename, Bucket]),
+            Record = io_lib:format("file ~s uploaded to ~s\n", [Filename, BucketName]),
             ok = file:write(IoDevice, list_to_binary(Record)),
             ok = file:close(IoDevice)
     end.
@@ -351,17 +355,13 @@ add_sudo_if_needed(Cmd, Args, Config) ->
             end
     end.
 
-% Return an environment mapping (list of name/value tuple pairs) suitable
-% for use with the Google Cloud client (as invoked via erlang:open_port/2).
-% Reads the various settings from the application environment.
-build_gcloud_env() ->
-    SetEnv = fun({AppEnvName, OsEnvName}, Acc) ->
-        case application:get_env(akashita, AppEnvName) of
-            undefined -> Acc;
-            {ok, AppEnvValue} -> Acc ++ [{OsEnvName, AppEnvValue}]
-        end
-    end,
-    SupportedSettings = [
-        {gcp_credentials, "GOOGLE_APPLICATION_CREDENTIALS"}
-    ],
-    lists:foldl(SetEnv, [], SupportedSettings).
+% Ensure the Google Cloud application credentials have been loaded. The
+% loaded credentials are returned, ready to be passed to enenra.
+retrieve_credentials() ->
+    case application:get_key(google_application_credentials) of
+        undefined ->
+            {ok, Credentials} = application:get_env(gcp_credentials),
+            {ok, Creds} = enenra:load_credentials(Credentials),
+            Creds;
+        C -> C
+    end.

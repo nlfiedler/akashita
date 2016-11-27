@@ -23,7 +23,6 @@
 import os
 
 from fabric.api import cd, env, run, sudo, task
-from fabric.contrib.files import append
 
 env.hosts = ["default"]
 env.use_ssh_config = True
@@ -41,7 +40,6 @@ URL_OTP = 'http://erlang.org/download/{}'.format(TAR_OTP)
 def all():
     """Install everything needed for akashita."""
     install_erlang()
-    install_golang()
     install_rebar()
 
 
@@ -63,17 +61,6 @@ def install_erlang():
         run('make')
         sudo('make install')
     run('rm -rf {}*'.format(DIR_OTP))
-
-
-@task
-def install_golang():
-    """Install the Go programming language."""
-    run('wget -q https://storage.googleapis.com/golang/go1.6.linux-amd64.tar.gz')
-    sudo('tar -C /usr/local -xzf go1.6.linux-amd64.tar.gz')
-    run('rm -f go1.6.linux-amd64.tar.gz')
-    append('.profile', 'export PATH=$PATH:/usr/local/go/bin')
-    run('mkdir gocode')
-    append('.profile', 'export GOPATH=~/gocode')
 
 
 @task

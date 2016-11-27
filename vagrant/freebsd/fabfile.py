@@ -22,7 +22,7 @@
 
 import os
 
-from fabric.api import env, run, sudo, task
+from fabric.api import env, sudo, task
 
 env.shell = "/bin/sh -c"
 env.hosts = ["default"]
@@ -38,9 +38,6 @@ def all():
     """Install everything needed for akashita."""
     sudo("pkg install -q -y git")
     sudo("pkg install -q -y erlang")
-    sudo("pkg install -q -y go")
     sudo("pkg install -q -y rebar")
     sudo("pkg install -q -y mkfile")
     sudo("pkg install -q -y rsync")
-    run('mkdir gocode')
-    run("echo 'setenv GOPATH ~/gocode' >> .cshrc")

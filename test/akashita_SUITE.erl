@@ -26,8 +26,9 @@
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("kernel/include/file.hrl").
+-include_lib("enenra/include/enenra.hrl").
 
--define(SPLIT_SIZE, 262144).
+-define(SPLIT_SIZE, 65536).
 -define(DEFAULT_EXCLUDES, [".VolumeIcon.icns", ".fseventsd", ".Trashes"]).
 
 init_per_suite(Config) ->
@@ -37,6 +38,7 @@ init_per_suite(Config) ->
     ok = application:set_env(mnesia, dir, Priv),
     akashita_app:ensure_schema([node()]),
     ok = application:start(mnesia),
+    {ok, _Apps} = application:ensure_all_started(enenra),
     Config.
 
 end_per_suite(_Config) ->
@@ -45,6 +47,7 @@ end_per_suite(_Config) ->
         {error, {not_started, akashita}} -> ok;
         {error, Reason} -> error(Reason)
     end,
+    ok = application:stop(enenra),
     ok = application:stop(mnesia).
 
 all() ->
@@ -137,12 +140,10 @@ ensure_objects_test(_Config) ->
     TmpDir = string:strip(?cmd("mktemp -d"), right, $\n),
     % sanity check the result of mktemp so we don't clobber random files
     ?assertEqual($/, hd(TmpDir)),
-    ct:log(default, 50, "splits dir: ~s", [TmpDir]),
     Cwd = os:getenv("PWD"),
-    ct:log(default, 50, "PWD: ~s", [Cwd]),
     SplitSize = integer_to_list(?SPLIT_SIZE),
-    % exclude the ever-growing logs directory tree
-    Options = [{paths, ["."]}, {dataset, tl(Cwd)}, {excludes, ["logs"]}],
+    % exclude the typically large build directory tree
+    Options = [{paths, ["."]}, {dataset, tl(Cwd)}, {excludes, ["_build"]}],
     Bucket = "xfiles",
     Tag = "10-14-2005",
     AppConfig = [{split_size, SplitSize}, {tmpdir, TmpDir}, {buckets, [{Bucket, Options}]}],
@@ -185,7 +186,7 @@ ensure_snapshot_exists_test(Config) ->
 verify_split_files(SplitsDir, Prefix) ->
     {ok, SplitFiles} = file:list_dir(SplitsDir),
     {_LastSplit, SameSizeSplits} = lists:split(1, lists:reverse(lists:sort(SplitFiles))),
-    ?assert(length(SameSizeSplits) > 10),
+    ?assert(length(SameSizeSplits) > 8),
     % we expect the split names to be like "splits00001"
     {ok, MP} = re:compile(Prefix ++ "\\d{5}"),
     CorrectFile = fun(Filename) ->
@@ -216,7 +217,6 @@ ensure_clone_exists_test(Config) ->
             ok = akashita:ensure_clone_exists(
                 "panzer/parts", "panzer@akashita:10-14-2005", AppConfig),
             Datasets = ?cmd("sudo zfs list"),
-            ct:log(default, 50, "datasets: ~s", [Datasets]),
             ?assert(string:str(Datasets, "panzer/parts") > 0),
             % do it again to make sure it does not crash
             ok = akashita:ensure_clone_exists(
@@ -240,7 +240,6 @@ destroy_dataset_test(Config) ->
             AppConfig = [{use_sudo, true}],
             ok = akashita:destroy_dataset("panzer@akashita:10-14-2005", AppConfig),
             Datasets = ?cmd("sudo zfs list"),
-            ct:log(default, 50, "datasets: ~s", [Datasets]),
             ?assertEqual(0, string:str(Datasets, "panzer@akashita:10-14-2005")),
             ?assertCmd("sudo zpool destroy panzer"),
             ok = file:delete(FSFile)
@@ -292,9 +291,8 @@ process_uploads_test(Config) ->
             ?assertCmd("sudo zfs create panzer/photos"),
             ?assertCmd("sudo chmod 777 /panzer/photos"),
             Cwd = os:getenv("PWD"),
-            % copy everything except the logs which contains our 64MB file
-            % (and priv contains the giant Go binary)
-            ?assertCmd("rsync --exclude=logs --exclude=priv -r " ++ Cwd ++ "/* /panzer/shared"),
+            % copy everything except the test directory which contains our 64MB file
+            ?assertCmd("rsync --exclude=_build -r " ++ Cwd ++ "/* /panzer/shared"),
             % copy something to the photos "bucket", that will result in a single object
             {ok, _BC} = file:copy(filename:join(Cwd, "test/akashita_SUITE.erl"),
                 "/panzer/photos/akashita_SUITE.erl"),
@@ -307,7 +305,7 @@ process_uploads_test(Config) ->
             % test in which nothing will happen because it's not the right time
             ok = application:set_env(akashita, go_times, ["23:59-00:00"]),
             ok = application:set_env(akashita, tmpdir, PrivDir),
-            ok = application:set_env(akashita, split_size, "256K"),
+            ok = application:set_env(akashita, split_size, "64K"),
             % ignore the bothersome special directories and files
             ok = application:set_env(akashita, default_excludes, ?DEFAULT_EXCLUDES),
             BucketsConf = [
@@ -350,7 +348,7 @@ process_uploads_test(Config) ->
             end,
             lists:foreach(FindBucketsCreated, BucketRegexs),
             % check that the objects were uploaded...
-            SharedObjects = [lists:flatten(io_lib:format("shared~5.10.0B", [I])) || I <- lists:seq(1, 10)],
+            SharedObjects = [lists:flatten(io_lib:format("shared~5.10.0B", [I])) || I <- lists:seq(0, 2)],
             FindObjectsUploaded = fun(ObjectName) ->
                 E = lists:flatten(io_lib:format("~s uploaded to \\w{32}-shared-~s", [ObjectName, Tag])),
                 ?assert(case re:run(BackupText, E) of
@@ -388,9 +386,8 @@ process_uploads_live_test(Config) ->
             ?assertCmd("sudo zfs create panzer/photos"),
             ?assertCmd("sudo chmod 777 /panzer/photos"),
             Cwd = os:getenv("PWD"),
-            % copy everything except the logs which contains our 64MB file
-            % (and priv contains the giant Go binary)
-            ?assertCmd("rsync --exclude=logs --exclude=priv -r " ++ Cwd ++ "/* /panzer/shared"),
+            % copy everything except the test directory which contains our 64MB file
+            ?assertCmd("rsync --exclude=_build -r " ++ Cwd ++ "/* /panzer/shared"),
             % copy something to the photos "bucket", that will result in a single object
             {ok, _BC} = file:copy(filename:join(Cwd, "test/akashita_SUITE.erl"),
                 "/panzer/photos/akashita_SUITE.erl"),
@@ -399,12 +396,11 @@ process_uploads_live_test(Config) ->
             % set application environment to backup data to the cloud
             ok = application:unset_env(akashita, test_log),
             ok = application:set_env(akashita, gcs_region, get_env("GCS_REGION")),
-            ok = application:set_env(akashita, gcp_project, get_env("GCP_PROJECT")),
             ok = application:set_env(akashita, gcp_credentials, get_env("GCP_CREDENTIALS")),
             ok = application:set_env(akashita, use_sudo, true),
             ok = application:set_env(akashita, tmpdir, PrivDir),
             ok = application:set_env(akashita, go_times, ["00:00-23:59"]),
-            ok = application:set_env(akashita, split_size, "256K"),
+            ok = application:set_env(akashita, split_size, "64K"),
             % ignore the bothersome special directories and files
             ok = application:set_env(akashita, default_excludes, ?DEFAULT_EXCLUDES),
             BucketsConf = [
@@ -432,11 +428,12 @@ process_uploads_live_test(Config) ->
             wait_for_backup_to_finish(),
             % verify that the objects were uploaded
             SharedObjects = list_bucket(SharedRemoteName),
-            ?assert(length(SharedObjects) > 10),
-            ?assertEqual("shared00000", hd(SharedObjects)),
+            ct:log(default, 50, "shared objects: ~s", [SharedObjects]),
+            ?assert(length(SharedObjects) > 2),
+            ?assertEqual(<<"shared00000">>, hd(SharedObjects)),
             PhotosObjects = list_bucket(PhotosRemoteName),
             ?assertEqual(1, length(PhotosObjects)),
-            ?assertEqual("photos00000", hd(PhotosObjects)),
+            ?assertEqual(<<"photos00000">>, hd(PhotosObjects)),
             ?assertCmd("sudo zpool destroy panzer"),
             ok = file:delete(FSFile)
     end.
@@ -472,16 +469,13 @@ wait_for_backup_to_finish() ->
     end.
 
 % Retrieve the contents of the named Bucket as a list of strings.
-list_bucket(Bucket) ->
+list_bucket(Bucket) when is_list(Bucket) ->
+    list_bucket(list_to_binary(Bucket));
+list_bucket(Bucket) when is_binary(Bucket) ->
     {ok, Credentials} = application:get_env(akashita, gcp_credentials),
-    Env = "GOOGLE_APPLICATION_CREDENTIALS=" ++ Credentials,
-    Akashita = filename:join(code:priv_dir(akashita), "akashita"),
-    Cmd = Env ++ " " ++ Akashita ++ " -objects -bucket " ++ Bucket,
-    ct:log(default, 50, "list bucket: ~s", [Cmd]),
-    Buckets = os:cmd(Cmd),
-    Results = re:split(Buckets, "\n", [{return, list}]),
-    % filter out any blank lines
-    lists:filter(fun(Elem) -> length(Elem) > 0 end, Results).
+    {ok, Creds} = enenra:load_credentials(Credentials),
+    {ok, Objects} = enenra:list_objects(Bucket, Creds),
+    lists:sort([O#object.name || O <- Objects]).
 
 % Produce a compiled regex to match the "created" log entry for the given
 % bucket and tag.

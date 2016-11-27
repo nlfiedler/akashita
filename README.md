@@ -1,22 +1,28 @@
 # Akashita
 
-[Akashita](http://en.wikipedia.org/wiki/Akashita) is an Erlang/Go hybrid application to facilitate automatically creating ZFS snapshots and uploading them to [Google Cloud Storage](https://cloud.google.com/storage/) as a means of off-site backup. The intent is for the upload to occur during "off-peak" hours to avoid competing with high-demand Internet services. The storage class used is hard-coded to "nearline", the most affordable storage offered by Google.
+[Akashita](http://en.wikipedia.org/wiki/Akashita) is an Erlang/OTP application to facilitate automatically creating ZFS snapshots and uploading them to [Google Cloud Storage](https://cloud.google.com/storage/) as a means of off-site backup. The intent is for the upload to occur during "off-peak" hours to avoid competing with high-demand Internet services. The storage class used is hard-coded to "nearline", the most affordable storage offered by Google.
 
 ## Requirements
 
 * [Erlang/OTP](http://www.erlang.org) R17 or higher
-* [Go](https://golang.org) 1.5 or higher
 * [rebar3](https://github.com/erlang/rebar3/) 3.0.0 or higher
 
 ## Building and Testing
 
-To download the dependencies and build the application, use `rebar3` as follows:
+To build and test the application, use `rebar3` as follows:
 
 ```shell
-$ go get github.com/nlfiedler/akashita
-$ cd $GOPATH/src/github.com/nlfiedler/akashita
+$ rebar3 compile
 $ rebar3 ct
 ```
+
+Running the live tests, which generate sample data and upload it to Google Cloud Storage:
+
+```
+$ AKASHITA_LIVE_TEST=1 GCS_REGION='us-west1' GCP_CREDENTIALS=~/.gcloud/mycreds.json rebar3 ct
+```
+
+The `AKASHITA_LIVE_TEST` environment variable signals the test suite to include the live tests in addition to the usual suite, and the other two settings are for connecting to Google Cloud Storage. Set the `GCS_REGION` value to the region that best suits your location, and `GCP_CREDENTIALS` is the path to your service account credentials, as described in the `docs/Google_Cloud.md` file.
 
 ### Tested Systems
 
