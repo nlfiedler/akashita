@@ -155,17 +155,15 @@ retrieve_bucket_name(Bucket, Tag) ->
             [] ->
                 %
                 % Google Cloud Storage bucket naming conventions call for
-                % lowercase letters, avoiding underscores, using dots to
-                % separate parts of the name, as well as being globally
-                % unique. As such, compute a SHA1 of several pieces of
-                % information that are unlikely to appear elsewhere and use
-                % that as the prefix to the desired bucket name.
+                % lowercase letters, avoiding underscores, as well as being
+                % globally unique. As such, compute an ULID and use that as
+                % the prefix to the desired bucket name.
                 %
                 % See https://cloud.google.com/storage/docs/naming
                 %
-                Dotless = string:to_lower(re:replace(Bucket, "\\.", "_", [global])),
-                Uuid1 = inugami:to_string(compact, inugami:uuid1()),
-                NewName = lists:flatten(io_lib:format("~s-~s-~s", [Uuid1, Dotless, Tag])),
+                Dotless = string:to_lower(re:replace(Bucket, "\\.", "-", [global])),
+                Ulid1 = string:to_lower(ulid:generate_list()),
+                NewName = lists:flatten(io_lib:format("~s-~s-~s", [Ulid1, Dotless, Tag])),
                 ok = mnesia:write(#akashita_buckets{name=Bucket, cloud_name=NewName}),
                 lager:info("generated bucket name ~s", [NewName]),
                 NewName;

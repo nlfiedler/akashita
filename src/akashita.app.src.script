@@ -35,7 +35,7 @@ App = [
         mnesia
     ]},
     {included_applications, [
-        inugami
+        ulid
     ]},
     {mod, {akashita_app, []}},
     {env, AppEnv}

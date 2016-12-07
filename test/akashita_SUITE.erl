@@ -350,7 +350,7 @@ process_uploads_test(Config) ->
             % check that the objects were uploaded...
             SharedObjects = [lists:flatten(io_lib:format("shared~5.10.0B", [I])) || I <- lists:seq(0, 2)],
             FindObjectsUploaded = fun(ObjectName) ->
-                E = lists:flatten(io_lib:format("~s uploaded to \\w{32}-shared-~s", [ObjectName, Tag])),
+                E = lists:flatten(io_lib:format("~s uploaded to \\w{26}-shared-~s", [ObjectName, Tag])),
                 ?assert(case re:run(BackupText, E) of
                     {match, _Captured} -> true;
                     nomatch -> false
@@ -358,7 +358,7 @@ process_uploads_test(Config) ->
             end,
             lists:foreach(FindObjectsUploaded, SharedObjects),
             % check that only one photos object was uploaded
-            Regex1 = io_lib:format("photos00001 uploaded to \\w{32}-photos-~s", [Tag]),
+            Regex1 = io_lib:format("photos00001 uploaded to \\w{26}-photos-~s", [Tag]),
             ?assert(case re:run(BackupText, lists:flatten(Regex1)) of
                 % should _not_ match...
                 {match, _Captured} -> false;
@@ -480,6 +480,6 @@ list_bucket(Bucket) when is_binary(Bucket) ->
 % Produce a compiled regex to match the "created" log entry for the given
 % bucket and tag.
 bucket_regex(Bucket, Tag) ->
-    % UUID string representation (without dashes) is 32 characters long.
-    {ok, MP} = re:compile("bucket \\w{32}-" ++ Bucket ++ "-" ++ Tag ++ " created"),
+    % ULID string representation is 26 characters long.
+    {ok, MP} = re:compile("bucket \\w{26}-" ++ Bucket ++ "-" ++ Tag ++ " created"),
     MP.
