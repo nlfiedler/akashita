@@ -32,7 +32,8 @@ App = [
         stdlib,
         crypto,
         lager,
-        mnesia
+        mnesia,
+        enenra
     ]},
     {included_applications, [
         ulid
