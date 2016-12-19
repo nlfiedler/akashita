@@ -33,12 +33,10 @@ App = [
         crypto,
         lager,
         mnesia,
-        hackney,  % for enenra
         enenra
     ]},
     {included_applications, [
-        ulid,
-        jiffy  % for enenra
+        ulid
     ]},
     {mod, {akashita_app, []}},
     {env, AppEnv}
