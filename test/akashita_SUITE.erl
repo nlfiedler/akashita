@@ -32,6 +32,13 @@
 -define(DEFAULT_EXCLUDES, [".VolumeIcon.icns", ".fseventsd", ".Trashes"]).
 
 init_per_suite(Config) ->
+    %
+    % No attempt is made to automatically remove the test pool prior to the
+    % test run. If such a pool exists at the time that we try to create it,
+    % we should fail without causing any damage. It is far better to have
+    % to clean up after a failed test run than to have someone's data
+    % deleted because they had a pool with the same name as ours.
+    %
     % ensure lager is configured for testing
     ok = application:set_env(lager, lager_common_test_backend, debug),
     Priv = ?config(priv_dir, Config),

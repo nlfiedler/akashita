@@ -104,18 +104,23 @@ upload_object(Filename, BucketName) when is_binary(BucketName) ->
                 md5Hash=Md5,
                 size=Size
             },
-            case enenra:upload_file(Filename, InObject, Creds) of
-                {ok, _Object} -> ok;
-                {error, Reason} ->
-                    lager:error("file ~s upload failed (temporarily), ~s", [Filename, Reason]),
-                    upload_object(Filename, BucketName)
-            end;
+            upload_object(Filename, InObject, Creds);
         {ok, LogFile} ->
             % in test mode, write to a log file
             {ok, IoDevice} = file:open(LogFile, [append]),
             Record = io_lib:format("file ~s uploaded to ~s\n", [Filename, BucketName]),
             ok = file:write(IoDevice, list_to_binary(Record)),
             ok = file:close(IoDevice)
+    end.
+
+% Upload the given file using the details provided in the object, and the
+% loaded credentials. Return 'ok' when successful, or die trying.
+upload_object(Filename, Object, Creds) ->
+    case enenra:upload_file(Filename, Object, Creds) of
+        {ok, _Object} -> ok;
+        {error, Reason} ->
+            lager:error("file ~s upload failed (temporarily), ~s", [Filename, Reason]),
+            upload_object(Filename, Object, Creds)
     end.
 
 % Create the ZFS snapshot, if it is missing, where Name is the snapshot

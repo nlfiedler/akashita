@@ -1,5 +1,11 @@
 * akashita TODO
 
+  ** Warmup
+    - Generate the first bucket name and create it, before checking go-time
+      - This ensures that many dependencies are working (ulid, jiffy, hackney, enenra)
+    - Generate the file archives before checking go-time
+      - Oftentimes the generation takes quite a while
+
   ** Batch Emails
     - [ ] Send email when a batch of uploads has completed, with metrics
       - Only if an email address is configured (none when testing)
