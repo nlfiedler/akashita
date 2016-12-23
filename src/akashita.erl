@@ -104,7 +104,7 @@ upload_object(Filename, BucketName) when is_binary(BucketName) ->
                 md5Hash=Md5,
                 size=Size
             },
-            upload_object(Filename, InObject, Creds);
+            upload_object(Filename, InObject, Creds, 0);
         {ok, LogFile} ->
             % in test mode, write to a log file
             {ok, IoDevice} = file:open(LogFile, [append]),
@@ -114,13 +114,16 @@ upload_object(Filename, BucketName) when is_binary(BucketName) ->
     end.
 
 % Upload the given file using the details provided in the object, and the
-% loaded credentials. Return 'ok' when successful, or die trying.
-upload_object(Filename, Object, Creds) ->
+% loaded credentials. Return 'ok' when successful, or {'error', Reason} if
+% it fails 10 times in a row.
+upload_object(_Filename, _Object, _Creds, 10) ->
+    {error, retry_limit_reached};
+upload_object(Filename, Object, Creds, FailedCount) ->
     case enenra:upload_file(Filename, Object, Creds) of
         {ok, _Object} -> ok;
         {error, Reason} ->
             lager:error("file ~s upload failed (temporarily), ~s", [Filename, Reason]),
-            upload_object(Filename, Object, Creds)
+            upload_object(Filename, Object, Creds, FailedCount + 1)
     end.
 
 % Create the ZFS snapshot, if it is missing, where Name is the snapshot
