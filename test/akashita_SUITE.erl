@@ -355,7 +355,7 @@ process_uploads_test(Config) ->
             end,
             lists:foreach(FindBucketsCreated, BucketRegexs),
             % check that the objects were uploaded...
-            SharedObjects = [lists:flatten(io_lib:format("shared~5.10.0B", [I])) || I <- lists:seq(0, 2)],
+            SharedObjects = [lists:flatten(io_lib:format("shared~5.10.0B", [I])) || I <- lists:seq(0, 1)],
             FindObjectsUploaded = fun(ObjectName) ->
                 E = lists:flatten(io_lib:format("~s uploaded to \\w{26}-shared-~s", [ObjectName, Tag])),
                 ?assert(case re:run(BackupText, E) of
