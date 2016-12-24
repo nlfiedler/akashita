@@ -193,7 +193,7 @@ ensure_snapshot_exists_test(Config) ->
 verify_split_files(SplitsDir, Prefix) ->
     {ok, SplitFiles} = file:list_dir(SplitsDir),
     {_LastSplit, SameSizeSplits} = lists:split(1, lists:reverse(lists:sort(SplitFiles))),
-    ?assert(length(SameSizeSplits) > 8),
+    ?assert(length(SameSizeSplits) > 4),
     % we expect the split names to be like "splits00001"
     {ok, MP} = re:compile(Prefix ++ "\\d{5}"),
     CorrectFile = fun(Filename) ->
