@@ -57,7 +57,8 @@ ensure_schema(Nodes) ->
     % create the schema if it does not exist
     case mnesia:system_info(schema_version) of
         {0, 0} ->
-            ok = mnesia:create_schema(Nodes);
+            ok = mnesia:create_schema(Nodes),
+            lager:info("created mnesia schema on ~w", [Nodes]);
         {_, _} ->
             ok
     end,
@@ -67,7 +68,8 @@ ensure_schema(Nodes) ->
                 ChangeTable = fun(Node) ->
                     mnesia:change_table_copy_type(schema, Node, disc_copies)
                 end,
-                [{atomic, ok} = ChangeTable(Node) || Node <- Nodes];
+                [{atomic, ok} = ChangeTable(Node) || Node <- Nodes],
+                lager:info("changed mnesia schema storage type to disc copies");
             _ ->
                 ok
         end,
@@ -79,6 +81,7 @@ ensure_schema(Nodes) ->
                     {disc_copies, Nodes},
                     {type, bag}
                 ]),
+                lager:info("created mnesia table akashita_tag"),
                 ok;
             true ->
                 ok
@@ -90,6 +93,7 @@ ensure_schema(Nodes) ->
                     {disc_copies, Nodes},
                     {type, set}
                 ]),
+                lager:info("created mnesia table akashita_buckets"),
                 ok;
             true ->
                 ok
@@ -103,8 +107,7 @@ ensure_schema(Nodes) ->
             rpc:multicall(Nodes, application, stop, [mnesia]);
         _ ->
             EnsureTables()
-    end,
-    lager:info("created mnesia tables").
+    end.
 
 % Ensure the mnesia application is running on all nodes.
 ensure_mnesia(Nodes) ->
