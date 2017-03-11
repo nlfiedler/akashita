@@ -1,9 +1,5 @@
 # TODO
 
-## Testing
-
-1. Replace "panzer" with a ulid generated string
-
 ## Warmup
 
 1. Generate the first bucket name and create it, before checking go-time

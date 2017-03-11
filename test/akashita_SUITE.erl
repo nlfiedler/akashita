@@ -32,13 +32,6 @@
 -define(DEFAULT_EXCLUDES, [".VolumeIcon.icns", ".fseventsd", ".Trashes"]).
 
 init_per_suite(Config) ->
-    %
-    % No attempt is made to automatically remove the test pool prior to the
-    % test run. If such a pool exists at the time that we try to create it,
-    % we should fail without causing any damage. It is far better to have
-    % to clean up after a failed test run than to have someone's data
-    % deleted because they had a pool with the same name as ours.
-    %
     % ensure lager is configured for testing
     ok = application:set_env(lager, lager_common_test_backend, debug),
     Priv = ?config(priv_dir, Config),
@@ -46,7 +39,10 @@ init_per_suite(Config) ->
     akashita_app:ensure_schema([node()]),
     ok = application:start(mnesia),
     {ok, _Apps} = application:ensure_all_started(enenra),
-    Config.
+    % Generate a unique ZFS dataset name, ensuring the first character is a
+    % letter, which ZFS requires.
+    Tank = [$a | string:substr(string:to_lower(ulid:generate_list()), 2)],
+    [{tank, Tank} | Config].
 
 end_per_suite(_Config) ->
     case application:stop(akashita) of
@@ -175,15 +171,16 @@ ensure_snapshot_exists_test(Config) ->
             FSFile = filename:join(PrivDir, "tank_file"),
             mkfile(FSFile),
             % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind
-            ?assertCmd("sudo zpool create panzer " ++ FSFile),
+            Tank = ?config(tank, Config),
+            ?assertCmd("sudo zpool create " ++ Tank ++ " " ++ FSFile),
             AppConfig = [{use_sudo, true}],
-            {ok, Snapshot} = akashita:ensure_snapshot_exists("10-14-2005", "panzer", AppConfig),
-            Snapshots = ?cmd("sudo zfs list -H -r -t snapshot panzer@akashita:10-14-2005"),
+            {ok, Snapshot} = akashita:ensure_snapshot_exists("10-14-2005", Tank, AppConfig),
+            Snapshots = ?cmd("sudo zfs list -H -r -t snapshot " ++ Tank ++ "@akashita:10-14-2005"),
             [DatasetName|_Rest] = re:split(Snapshots, "\t", [{return, list}]),
-            ?assertEqual("panzer@akashita:10-14-2005", DatasetName),
+            ?assertEqual(Tank ++ "@akashita:10-14-2005", DatasetName),
             % do it again to make sure it does not crash, and returns the same name
-            {ok, Snapshot} = akashita:ensure_snapshot_exists("10-14-2005", "panzer", AppConfig),
-            ?assertCmd("sudo zpool destroy panzer"),
+            {ok, Snapshot} = akashita:ensure_snapshot_exists("10-14-2005", Tank, AppConfig),
+            ?assertCmd("sudo zpool destroy " ++ Tank),
             ok = file:delete(FSFile)
     end.
 
@@ -217,18 +214,19 @@ ensure_clone_exists_test(Config) ->
             PrivDir = ?config(priv_dir, Config),
             FSFile = filename:join(PrivDir, "tank_file"),
             mkfile(FSFile),
+            Tank = ?config(tank, Config),
             % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind
-            ?assertCmd("sudo zpool create panzer " ++ FSFile),
-            ?assertCmd("sudo zfs snapshot panzer@akashita:10-14-2005"),
+            ?assertCmd("sudo zpool create " ++ Tank ++ " " ++ FSFile),
+            ?assertCmd("sudo zfs snapshot " ++ Tank ++ "@akashita:10-14-2005"),
             AppConfig = [{use_sudo, true}],
             ok = akashita:ensure_clone_exists(
-                "panzer/parts", "panzer@akashita:10-14-2005", AppConfig),
+                Tank ++ "/parts", Tank ++ "@akashita:10-14-2005", AppConfig),
             Datasets = ?cmd("sudo zfs list"),
-            ?assert(string:str(Datasets, "panzer/parts") > 0),
+            ?assert(string:str(Datasets, Tank ++ "/parts") > 0),
             % do it again to make sure it does not crash
             ok = akashita:ensure_clone_exists(
-                "panzer/parts", "panzer@akashita:10-14-2005", AppConfig),
-            ?assertCmd("sudo zpool destroy panzer"),
+                Tank ++ "/parts", Tank ++ "@akashita:10-14-2005", AppConfig),
+            ?assertCmd("sudo zpool destroy " ++ Tank),
             ok = file:delete(FSFile)
     end.
 
@@ -241,14 +239,15 @@ destroy_dataset_test(Config) ->
             PrivDir = ?config(priv_dir, Config),
             FSFile = filename:join(PrivDir, "tank_file"),
             mkfile(FSFile),
+            Tank = ?config(tank, Config),
             % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind
-            ?assertCmd("sudo zpool create panzer " ++ FSFile),
-            ?assertCmd("sudo zfs snapshot panzer@akashita:10-14-2005"),
+            ?assertCmd("sudo zpool create " ++ Tank ++ " " ++ FSFile),
+            ?assertCmd("sudo zfs snapshot " ++ Tank ++ "@akashita:10-14-2005"),
             AppConfig = [{use_sudo, true}],
-            ok = akashita:destroy_dataset("panzer@akashita:10-14-2005", AppConfig),
+            ok = akashita:destroy_dataset(Tank ++ "@akashita:10-14-2005", AppConfig),
             Datasets = ?cmd("sudo zfs list"),
-            ?assertEqual(0, string:str(Datasets, "panzer@akashita:10-14-2005")),
-            ?assertCmd("sudo zpool destroy panzer"),
+            ?assertEqual(0, string:str(Datasets, Tank ++ "@akashita:10-14-2005")),
+            ?assertCmd("sudo zpool destroy " ++ Tank),
             ok = file:delete(FSFile)
     end.
 
@@ -290,19 +289,20 @@ process_uploads_test(Config) ->
             PrivDir = ?config(priv_dir, Config),
             FSFile = filename:join(PrivDir, "tank_file"),
             mkfile(FSFile),
+            Tank = ?config(tank, Config),
             % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind.
             % Specify a mount point to avoid unexpected defaults (e.g. ZFS on Mac).
-            ?assertCmd("sudo zpool create -m /panzer panzer " ++ FSFile),
-            ?assertCmd("sudo zfs create panzer/shared"),
-            ?assertCmd("sudo chmod 777 /panzer/shared"),
-            ?assertCmd("sudo zfs create panzer/photos"),
-            ?assertCmd("sudo chmod 777 /panzer/photos"),
+            ?assertCmd("sudo zpool create -m /" ++ Tank ++ " " ++ Tank ++ " " ++ FSFile),
+            ?assertCmd("sudo zfs create " ++ Tank ++ "/shared"),
+            ?assertCmd("sudo chmod 777 /" ++ Tank ++ "/shared"),
+            ?assertCmd("sudo zfs create " ++ Tank ++ "/photos"),
+            ?assertCmd("sudo chmod 777 /" ++ Tank ++ "/photos"),
             Cwd = os:getenv("PWD"),
             % copy everything except the test directory which contains our 64MB file
-            ?assertCmd("rsync --exclude=_build -r " ++ Cwd ++ "/* /panzer/shared"),
+            ?assertCmd("rsync --exclude=_build -r " ++ Cwd ++ "/* /" ++ Tank ++ "/shared"),
             % copy something to the photos "bucket", that will result in a single object
             {ok, _BC} = file:copy(filename:join(Cwd, "test/akashita_SUITE.erl"),
-                "/panzer/photos/akashita_SUITE.erl"),
+                "/" ++ Tank ++ "/photos/akashita_SUITE.erl"),
             BackupLog = filename:join(PrivDir, "backup.log"),
             % load the application so we can override the config params
             ok = application:load(akashita),
@@ -317,14 +317,14 @@ process_uploads_test(Config) ->
             ok = application:set_env(akashita, default_excludes, ?DEFAULT_EXCLUDES),
             BucketsConf = [
                 {"shared", [
-                    {dataset, "panzer/shared"},
-                    {clone_base, "panzer/akashita"},
+                    {dataset, Tank ++ "/shared"},
+                    {clone_base, Tank ++ "/akashita"},
                     {paths, ["."]},
                     {compressed, false}
                 ]},
                 {"photos", [
-                    {dataset, "panzer/photos"},
-                    {clone_base, "panzer/akashita"},
+                    {dataset, Tank ++ "/photos"},
+                    {clone_base, Tank ++ "/akashita"},
                     {paths, ["."]},
                     {compressed, true}
                 ]}
@@ -371,7 +371,7 @@ process_uploads_test(Config) ->
                 {match, _Captured} -> false;
                 nomatch -> true
             end),
-            ?assertCmd("sudo zpool destroy panzer"),
+            ?assertCmd("sudo zpool destroy " ++ Tank),
             ok = file:delete(FSFile)
     end.
 
@@ -385,19 +385,20 @@ process_uploads_live_test(Config) ->
             PrivDir = ?config(priv_dir, Config),
             FSFile = filename:join(PrivDir, "tank_file"),
             mkfile(FSFile),
+            Tank = ?config(tank, Config),
             % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind.
             % Specify a mount point to avoid unexpected defaults (e.g. ZFS on Mac).
-            ?assertCmd("sudo zpool create -m /panzer panzer " ++ FSFile),
-            ?assertCmd("sudo zfs create panzer/shared"),
-            ?assertCmd("sudo chmod 777 /panzer/shared"),
-            ?assertCmd("sudo zfs create panzer/photos"),
-            ?assertCmd("sudo chmod 777 /panzer/photos"),
+            ?assertCmd("sudo zpool create -m /" ++ Tank ++ " " ++ Tank ++ " " ++ FSFile),
+            ?assertCmd("sudo zfs create " ++ Tank ++ "/shared"),
+            ?assertCmd("sudo chmod 777 /" ++ Tank ++ "/shared"),
+            ?assertCmd("sudo zfs create " ++ Tank ++ "/photos"),
+            ?assertCmd("sudo chmod 777 /" ++ Tank ++ "/photos"),
             Cwd = os:getenv("PWD"),
             % copy everything except the test directory which contains our 64MB file
-            ?assertCmd("rsync --exclude=_build -r " ++ Cwd ++ "/* /panzer/shared"),
+            ?assertCmd("rsync --exclude=_build -r " ++ Cwd ++ "/* /" ++ Tank ++ "/shared"),
             % copy something to the photos "bucket", that will result in a single object
             {ok, _BC} = file:copy(filename:join(Cwd, "test/akashita_SUITE.erl"),
-                "/panzer/photos/akashita_SUITE.erl"),
+                "/" ++ Tank ++ "/photos/akashita_SUITE.erl"),
             % application already loaded...
             % ok = application:load(akashita),
             % set application environment to backup data to the cloud
@@ -412,14 +413,14 @@ process_uploads_live_test(Config) ->
             ok = application:set_env(akashita, default_excludes, ?DEFAULT_EXCLUDES),
             BucketsConf = [
                 {"shared", [
-                    {dataset, "panzer/shared"},
-                    {clone_base, "panzer/akashita"},
+                    {dataset, Tank ++ "/shared"},
+                    {clone_base, Tank ++ "/akashita"},
                     {paths, ["."]},
                     {compressed, false}
                 ]},
                 {"photos", [
-                    {dataset, "panzer/photos"},
-                    {clone_base, "panzer/akashita"},
+                    {dataset, Tank ++ "/photos"},
+                    {clone_base, Tank ++ "/akashita"},
                     {paths, ["."]},
                     {compressed, true}
                 ]}
@@ -441,7 +442,7 @@ process_uploads_live_test(Config) ->
             PhotosObjects = list_bucket(PhotosRemoteName),
             ?assertEqual(1, length(PhotosObjects)),
             ?assertEqual(<<"photos00000">>, hd(PhotosObjects)),
-            ?assertCmd("sudo zpool destroy panzer"),
+            ?assertCmd("sudo zpool destroy " ++ Tank),
             ok = file:delete(FSFile)
     end.
 
