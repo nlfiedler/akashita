@@ -122,7 +122,7 @@ upload_object(Filename, Object, Creds, FailedCount) ->
     case enenra:upload_file(Filename, Object, Creds) of
         {ok, _Object} -> ok;
         {error, Reason} ->
-            lager:error("file ~s upload failed (temporarily), ~s", [Filename, Reason]),
+            lager:error("file ~s upload failed (temporarily), ~w", [Filename, Reason]),
             upload_object(Filename, Object, Creds, FailedCount + 1)
     end.
 
