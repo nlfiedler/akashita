@@ -1,7 +1,7 @@
 %% -*- coding: utf-8 -*-
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2016 Nathan Fiedler
+%% Copyright (c) 2016-2017 Nathan Fiedler
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -22,7 +22,10 @@
 %% The test suite.
 %%
 -module(akashita_SUITE).
--compile(export_all).
+-export([init_per_suite/1, end_per_suite/1, all/0]).
+-export([is_go_time_test/1, destroy_dataset_test/1, retrieve_tag_test/1, bucket_completed_test/1]).
+-export([ensure_objects_test/1, ensure_snapshot_exists_test/1, ensure_clone_exists_test/1]).
+-export([process_uploads_test/1, process_uploads_live_test/1]).
 -include_lib("common_test/include/ct.hrl").
 -include_lib("eunit/include/eunit.hrl").
 -include_lib("kernel/include/file.hrl").
