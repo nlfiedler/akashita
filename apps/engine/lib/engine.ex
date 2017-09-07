@@ -170,4 +170,31 @@ defmodule AkashitaEngine do
     next = :crypto.hmac(digest, password, prev)
     pbkdf2_round(password, round - 1, digest, next, :crypto.exor(next, acc))
   end
+
+  @doc """
+
+  Generate a type 5 UUID for the computer, using the current user's home
+  directory and the host name.
+
+  """
+  def gen_computer_uuid() do
+    userhome = case System.user_home() do
+      nil -> "/unknown"
+      home -> home
+    end
+    {:ok, host_chars} = :inet.gethostname()
+    name = to_string(host_chars) <> ":" <> userhome
+    :inugami.encode(:inugami.uuid5(:inugami.namespace_url(), name))
+  end
+
+  @doc """
+
+  Generate a suitable bucket name, using a ULID and the computer UUID.
+
+  """
+  def gen_bucket_name() do
+    uuid = String.replace(gen_computer_uuid(), "-", "")
+    ulid = String.downcase(Ulid.generate())
+    ulid <> uuid
+  end
 end

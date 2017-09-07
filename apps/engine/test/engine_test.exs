@@ -52,4 +52,17 @@ defmodule AkashitaEngineTest do
     assert master1 == blaster1
     assert master2 == blaster2
   end
+
+  test "computer UUID" do
+    uuid = AkashitaEngine.gen_computer_uuid()
+    assert is_binary(uuid)
+    assert byte_size(uuid) == 36
+    assert :inugami.get_version(:inugami.decode(uuid)) == 5
+  end
+
+  test "bucket name" do
+    bn = AkashitaEngine.gen_bucket_name()
+    assert is_binary(bn)
+    assert byte_size(bn) == 58
+  end
 end

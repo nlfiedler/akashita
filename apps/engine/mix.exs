@@ -26,6 +26,8 @@ defmodule AkashitaEngine.Mixfile do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
+      {:inugami, github: "nlfiedler/inugami", tag: "1.0.0"},
+      {:ulid, "~> 0.1.0"},
       {:temp, "~> 0.4.2", only: [:test]}
     ]
   end
