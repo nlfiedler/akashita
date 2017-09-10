@@ -28,7 +28,7 @@ defmodule AkashitaEngine.Mixfile do
     [
       {:inugami, github: "nlfiedler/inugami", tag: "1.0.0"},
       {:ulid, "~> 0.1.0"},
-      {:temp, "~> 0.4.2", only: [:test]}
+      {:temp, "~> 0.4.3", only: [:test]}
     ]
   end
 end

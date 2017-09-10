@@ -197,4 +197,173 @@ defmodule AkashitaEngine do
     ulid = String.downcase(Ulid.generate())
     ulid <> uuid
   end
+
+  @doc """
+
+  Create a pack file consisting of the given file (parts). The input is a list
+  of 3-tuples: {file path, byte offset, byte length}. Returns {:ok, sha256,
+  map of SHA1 to byte offsets}.
+
+  """
+  def pack_files(files, outfile)
+      when is_list(files)
+       and length(files) > 1
+       and is_binary(outfile)
+       and byte_size(outfile) > 1 do
+    pack_context = :crypto.hash_init(:sha256)
+    {:ok, pack_dev} = File.open(outfile, [:write, :delayed_write])
+    pack_context = write_and_hash("P4CK", pack_dev, pack_context)
+    pack_context = write_and_hash(<<0, 0, 0, 1>>, pack_dev, pack_context)
+    file_count = length(files)
+    pack_context = write_and_hash(<<file_count::32>>, pack_dev, pack_context)
+    {_pdev, _poff, pack_context, hash_to_offset_map} = Enum.reduce(
+      files, {pack_dev, 0, pack_context, Map.new()}, &pack_file_enum/2)
+    pack_digest = :crypto.hash_final(pack_context)
+    :ok = File.close(pack_dev)
+    {:ok, pack_digest, hash_to_offset_map}
+  end
+
+  #
+  # Write the given data to the output device and the hasher, returning the
+  # updated hash context.
+  #
+  defp write_and_hash(data, dev, context) do
+    IO.binwrite(dev, data)
+    :crypto.hash_update(context, data)
+  end
+
+  #
+  # Invoked once for each 3-tuple in the list of files passed to pack_files/2.
+  # The accumulator consists of the pack file (output) device, the pack file
+  # digest context, and the map of file part SHA1 digest to byte offset within
+  # the pack file.
+  #
+  defp pack_file_enum({path, pos, len}, {dev, offset, context, entry_map}) do
+    len_bytes = <<len::32>>
+    context = write_and_hash(len_bytes, dev, context)
+    {:ok, file_dev} = File.open(path, [:read, :binary, :read_ahead])
+    file_context = :crypto.hash_init(:sha)
+    {:ok, _np} = :file.position(file_dev, pos)
+    {:ok, context, file_hash} = pack_file(context, file_context, dev, file_dev, len)
+    entry_map = Map.put(entry_map, file_hash, offset)
+    # Return the offset of the next part, which is the length of this part plus
+    # 4 bytes for the length value itself.
+    {dev, offset + len + 4, context, entry_map}
+  end
+
+  #
+  # Copy length bytes from file_dev to pack_dev, returning {:ok, sha1}.
+  #
+  defp pack_file(pack_context, file_context, _pack_dev, file_dev, 0) do
+    :ok = File.close(file_dev)
+    {:ok, pack_context, :crypto.hash_final(file_context)}
+  end
+  defp pack_file(pack_context, file_context, pack_dev, file_dev, length) do
+    to_read = min(length, 65536)
+    case IO.binread(file_dev, to_read) do
+      :eof -> pack_file(pack_context, file_context, pack_dev, file_dev, 0)
+      {:error, reason} ->
+        {:error, reason}
+      data ->
+        pack_context = write_and_hash(data, pack_dev, pack_context)
+        file_context = :crypto.hash_update(file_context, data)
+        pack_file(pack_context, file_context, pack_dev, file_dev, length - to_read)
+    end
+  end
+
+  @doc """
+
+  Compute the digest of the given file, returning {:ok, digest}. The default
+  digest is :sha256, but any value acceptable to :crypto.hash_init/1 is
+  supported.
+
+  """
+  def compute_digest(filename, digest \\ :sha256) do
+    {:ok, handle} = File.open(filename, [:read, :binary, :read_ahead])
+    context = :crypto.hash_init(digest)
+    case compute_digest_iter(handle, context) do
+      {:ok, digest} -> {:ok, Base.encode16(digest, case: :lower)}
+      err -> err
+    end
+  end
+
+  #
+  # Recursively compute the digest of the bytes read from the input device,
+  # return {:ok, digest_bytes}.
+  #
+  defp compute_digest_iter(handle, context) do
+    case IO.binread(handle, 65536) do
+      :eof ->
+        :ok = File.close(handle)
+        {:ok, :crypto.hash_final(context)}
+      {:error, reason} ->
+        {:error, reason}
+      data ->
+        context = :crypto.hash_update(context, data)
+        compute_digest_iter(handle, context)
+    end
+  end
+
+  @doc """
+
+  Extract the file parts from the given pack file, writing them to the
+  output directory, with the names being the SHA1 checksum of each part.
+  Returns :ok or {:error, reason}.
+
+  """
+  def unpack_files(pack_file, outdir) do
+    {:ok, handle} = File.open(pack_file, [:read, :binary, :read_ahead])
+    File.mkdir_p!(outdir)
+    # TODO: handle an encrypted pack file
+    case IO.binread(handle, 12) do
+      :eof -> {:error, "missing pack header"}
+      {:error, reason} -> {:error, reason}
+      <<"P4CK", 0,0,0,1, count :: size(32)>> ->
+        unpack_files(count, handle, outdir)
+      _unknown -> {:error, "unsupported pack file"}
+    end
+  end
+
+  #
+  # Unpack the parts from the device.
+  #
+  defp unpack_files(0, phandle, _outdir) do
+    File.close(phandle)
+  end
+  defp unpack_files(count, phandle, outdir) do
+    case IO.binread(phandle, 4) do
+      :eof -> {:error, "missing part size"}
+      {:error, reason} -> {:error, reason}
+      data ->
+        to_read = :binary.decode_unsigned(data)
+        context = :crypto.hash_init(:sha)
+        outfile = Path.join(outdir, "p4ck-p4rt-#{to_read}")
+        {:ok, fhandle} = File.open(outfile, [:write, :delayed_write])
+        case unpack_file(phandle, context, fhandle, to_read) do
+          {:ok, digest} ->
+            sha1file = Path.join(outdir, Base.encode16(digest, case: :lower))
+            :ok = File.rename(outfile, sha1file)
+            unpack_files(count - 1, phandle, outdir)
+          err -> err
+        end
+    end
+  end
+
+  #
+  # Unpack a single part from the pack file.
+  #
+  defp unpack_file(_phandle, context, fhandle, 0) do
+    :ok = File.close(fhandle)
+    {:ok, :crypto.hash_final(context)}
+  end
+  defp unpack_file(phandle, context, fhandle, length) do
+    to_read = min(length, 65536)
+    case IO.binread(phandle, to_read) do
+      :eof -> unpack_file(phandle, context, fhandle, 0)
+      {:error, reason} -> {:error, reason}
+      data ->
+        context = write_and_hash(data, fhandle, context)
+        unpack_file(phandle, context, fhandle, length - to_read)
+    end
+  end
 end
