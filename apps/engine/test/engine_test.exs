@@ -132,4 +132,50 @@ defmodule AkashitaEngineTest do
       assert digest == sha1
     end
   end
+
+  test "pack and unpack files encrypted", context do
+    priv_dir = context[:priv_dir]
+    {:ok, master1, master2} = AkashitaEngine.generate_master_keys()
+    #
+    # Pack up some test files.
+    #
+    files = [
+      {"./test/fixtures/NOTICE", 0, 131},
+      {"./test/fixtures/SekienAkashita.jpg", 0, 512},
+      {"./test/fixtures/SekienAkashita.jpg", 0, 109466}
+    ]
+    tmp_pack = Path.join(priv_dir, "mypackfile")
+    # The pack digest is useful information, but we cannot verify on the
+    # encrypted pack file since the digest is of the pack _before_ encryption.
+    {:ok, _pack_digest, mapping} = AkashitaEngine.pack_files_encrypted(
+      files, tmp_pack, master1, master2)
+    {:ok, digest_bin} = Base.decode16("8D6D4067D6F0A8CC095FE9E3C1311A8339B204EC")
+    assert Map.has_key?(mapping, digest_bin)
+    assert Map.get(mapping, digest_bin) == 0
+    {:ok, digest_bin} = Base.decode16("E17861E7A6D7B64660980A3D7C8484A2500D3125")
+    assert Map.has_key?(mapping, digest_bin)
+    assert Map.get(mapping, digest_bin) == 135
+    {:ok, digest_bin} = Base.decode16("4C009E44FE5794DF0B1F828F2A8C868E66644964")
+    assert Map.has_key?(mapping, digest_bin)
+    assert Map.get(mapping, digest_bin) == 651
+    #
+    # Unpack the files and validate the results match what went in, including
+    # checksum and byte count.
+    #
+    :ok = AkashitaEngine.unpack_files_encrypted(
+      tmp_pack, priv_dir, master1, master2)
+    expected_parts = [
+      {"8d6d4067d6f0a8cc095fe9e3c1311a8339b204ec", 131},
+      {"e17861e7a6d7b64660980a3d7c8484a2500d3125", 512},
+      {"4c009e44fe5794df0b1f828f2a8c868e66644964", 109466}
+    ]
+    for {sha1, length} <- expected_parts do
+      fname = Path.join(priv_dir, sha1)
+      assert File.exists?(fname)
+      stat = File.stat!(fname)
+      assert stat.size == length
+      {:ok, digest} = AkashitaEngine.compute_digest(fname, :sha)
+      assert digest == sha1
+    end
+  end
 end

@@ -65,15 +65,22 @@ defmodule AkashitaEngine do
 
   Decrypt the file, writing the results to the desired path, using AES/CTR.
 
+  The `skip_bytes` indicates how many bytes are to be read and discarded from
+  the input file, before decrypting the rest of the file (i.e. a header).
+
   Returns :ok or {:error, reason}
 
   """
-  def decrypt_file(infile, outfile, key, iv) do
+  def decrypt_file(infile, outfile, key, iv, skip_bytes \\ 0) do
     state = :crypto.stream_init(:aes_ctr, key, iv)
     fun = &:crypto.stream_decrypt(&1, &2)
     with {:ok, id} = File.open(infile, [:read, :binary, :read_ahead]),
-         {:ok, od} = File.open(outfile, [:write, :delayed_write]),
-         do: crypt_device(id, od, state, fun)
+         {:ok, od} = File.open(outfile, [:write, :delayed_write]) do
+      if skip_bytes > 0 do
+        IO.binread(id, skip_bytes)
+      end
+      crypt_device(id, od, state, fun)
+    end
   end
 
   # Read from the input device in chunks, passing the data through the stream
@@ -223,6 +230,67 @@ defmodule AkashitaEngine do
     {:ok, pack_digest, hash_to_offset_map}
   end
 
+  @doc """
+
+  Create a pack file and encrypt it using the master keys. Returns {:ok, sha256,
+  map of SHA1 to byte offsets}.
+
+  """
+  def pack_files_encrypted(files, outfile, master1, master2) do
+    session_key = :crypto.strong_rand_bytes(16)
+    session_iv = :crypto.strong_rand_bytes(16)
+    pack_file = outfile <> ".1"
+    enc_file = outfile <> ".2"
+    {:ok, pack_digest, hash_to_offset_map} = pack_files(files, pack_file)
+    case encrypt_file(pack_file, enc_file, session_key, session_iv) do
+      :ok ->
+        File.rm(pack_file)
+        # "master" iv for the encryption of the data keys
+        master_iv = :crypto.strong_rand_bytes(16)
+        encrypted_keys = encrypt(session_iv <> session_key, master1, master_iv)
+        mac_context = :crypto.hmac_init(:sha256, master2)
+        mac_context = :crypto.hmac_update(mac_context, master_iv)
+        mac_context = :crypto.hmac_update(mac_context, encrypted_keys)
+        {:ok, file_dev} = File.open(enc_file, [:read, :binary, :read_ahead])
+        {:ok, mac} = hmac_file(file_dev, mac_context)
+        {:ok, pack_dev} = File.open(outfile, [:write, :delayed_write])
+        # magic number, rot13 of "P4CK"
+        IO.binwrite(pack_dev, "C4PX")
+        # version number
+        IO.binwrite(pack_dev, <<0, 0, 0, 1>>)
+        # 32-byte HMAC digest
+        IO.binwrite(pack_dev, mac)
+        # 16-byte "master" init vector
+        IO.binwrite(pack_dev, master_iv)
+        # 48-byte encrypted keys (with padding)
+        IO.binwrite(pack_dev, encrypted_keys)
+        {:ok, enc_dev} = File.open(enc_file, [:read, :binary, :read_ahead])
+        {:ok, _bytes_copied} = :file.copy(enc_dev, pack_dev)
+        File.close(enc_dev)
+        File.close(pack_dev)
+        File.rm(enc_file)
+        {:ok, pack_digest, hash_to_offset_map}
+      err -> err
+    end
+  end
+
+  #
+  # Compute the HMAC of the contents of the IO device. Returns {:ok, hmac} and
+  # closes the IO device, or returns {:error, reason} otherwise.
+  #
+  defp hmac_file(handle, context) do
+    case IO.binread(handle, 65536) do
+      :eof ->
+        :ok = File.close(handle)
+        {:ok, :crypto.hmac_final(context)}
+      {:error, reason} ->
+        {:error, reason}
+      data ->
+        context = :crypto.hmac_update(context, data)
+        hmac_file(handle, context)
+    end
+  end
+
   #
   # Write the given data to the output device and the hasher, returning the
   # updated hash context.
@@ -252,7 +320,8 @@ defmodule AkashitaEngine do
   end
 
   #
-  # Copy length bytes from file_dev to pack_dev, returning {:ok, sha1}.
+  # Copy length bytes from file_dev to pack_dev, returning {:ok, sha1} or
+  # {:error, reason}.
   #
   defp pack_file(pack_context, file_context, _pack_dev, file_dev, 0) do
     :ok = File.close(file_dev)
@@ -275,7 +344,7 @@ defmodule AkashitaEngine do
 
   Compute the digest of the given file, returning {:ok, digest}. The default
   digest is :sha256, but any value acceptable to :crypto.hash_init/1 is
-  supported.
+  supported. Returns {:ok, digest} or {:error, reason}
 
   """
   def compute_digest(filename, digest \\ :sha256) do
@@ -289,7 +358,7 @@ defmodule AkashitaEngine do
 
   #
   # Recursively compute the digest of the bytes read from the input device,
-  # return {:ok, digest_bytes}.
+  # returns {:ok, digest_bytes} or {:error, reason}.
   #
   defp compute_digest_iter(handle, context) do
     case IO.binread(handle, 65536) do
@@ -306,21 +375,77 @@ defmodule AkashitaEngine do
 
   @doc """
 
-  Extract the file parts from the given pack file, writing them to the
-  output directory, with the names being the SHA1 checksum of each part.
-  Returns :ok or {:error, reason}.
+  Extract the file parts from the given pack file, writing them to the output
+  directory, with the names being the SHA1 checksum of each part. Returns :ok or
+  {:error, reason}.
 
   """
   def unpack_files(pack_file, outdir) do
     {:ok, handle} = File.open(pack_file, [:read, :binary, :read_ahead])
     File.mkdir_p!(outdir)
-    # TODO: handle an encrypted pack file
     case IO.binread(handle, 12) do
       :eof -> {:error, "missing pack header"}
       {:error, reason} -> {:error, reason}
       <<"P4CK", 0,0,0,1, count :: size(32)>> ->
         unpack_files(count, handle, outdir)
       _unknown -> {:error, "unsupported pack file"}
+    end
+  end
+
+  @doc """
+
+  Extract the file parts from the given pack file, writing them to the output
+  directory, with the names being the SHA1 checksum of each part. The two master
+  keys are used to decrypt the pack file first. Returns :ok or {:error, reason}.
+
+  """
+  def unpack_files_encrypted(pack_file, outdir, master1, master2) do
+    {:ok, handle} = File.open(pack_file, [:read, :binary, :read_ahead])
+    case IO.binread(handle, 8) do
+      :eof -> {:error, "missing pack header"}
+      {:error, reason} -> {:error, reason}
+      # magic number and version number
+      <<"C4PX", 0,0,0,1>> ->
+        # 32-byte HMAC digest
+        expected_hmac = read_bytes(handle, 32)
+        # 16-byte "master" init vector
+        master_iv = read_bytes(handle, 16)
+        # 48-byte encrypted keys (with padding)
+        encrypted_keys = read_bytes(handle, 48)
+        mac_context = :crypto.hmac_init(:sha256, master2)
+        mac_context = :crypto.hmac_update(mac_context, master_iv)
+        mac_context = :crypto.hmac_update(mac_context, encrypted_keys)
+        {:ok, mac} = hmac_file(handle, mac_context)
+        if mac == expected_hmac do
+          de_pack_file = pack_file <> ".1"
+          <<session_iv::binary-size(16), session_key::binary-size(16)>> =
+            decrypt(encrypted_keys, master1, master_iv)
+          # When decrypting the file, need to skip the header:
+          # <<"C4PX",0,0,0,1>>, 32-byte HMAC, 16-byte iv, 48-byte keys
+          case decrypt_file(pack_file, de_pack_file, session_key, session_iv, 104) do
+            :ok ->
+              case unpack_files(de_pack_file, outdir) do
+                :ok -> File.rm(de_pack_file)
+                err -> err
+              end
+            err -> err
+          end
+        else
+          {:error, "HMAC does not match"}
+        end
+      _unknown -> {:error, "unsupported (encrypted) pack file"}
+    end
+  end
+
+  #
+  # Reads the given number of bytes from the IO device, raising an exception if
+  # anything goes wrong.
+  #
+  defp read_bytes(handle, bytes) do
+    case IO.binread(handle, bytes) do
+      :eof -> raise "missing HMAC"
+      {:error, reason} -> raise reason
+      data -> data
     end
   end
 
