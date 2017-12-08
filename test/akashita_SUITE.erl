@@ -375,7 +375,8 @@ process_uploads_test(Config) ->
                 nomatch -> true
             end),
             ?assertCmd("sudo zpool destroy " ++ Tank),
-            ok = file:delete(FSFile)
+            ok = file:delete(FSFile),
+            ?assertCmd("sudo rmdir /" ++ Tank)
     end.
 
 % Test the full backup process, including uploading content to the cloud.
@@ -440,13 +441,14 @@ process_uploads_live_test(Config) ->
             % verify that the objects were uploaded
             SharedObjects = list_bucket(SharedRemoteName),
             ct:log(default, 50, "shared objects: ~s", [SharedObjects]),
-            ?assert(length(SharedObjects) > 2),
+            ?assert(length(SharedObjects) > 1),
             ?assertEqual(<<"shared00000">>, hd(SharedObjects)),
             PhotosObjects = list_bucket(PhotosRemoteName),
             ?assertEqual(1, length(PhotosObjects)),
             ?assertEqual(<<"photos00000">>, hd(PhotosObjects)),
             ?assertCmd("sudo zpool destroy " ++ Tank),
-            ok = file:delete(FSFile)
+            ok = file:delete(FSFile),
+            ?assertCmd("sudo rmdir /" ++ Tank)
     end.
 
 % Retrieve an environment variable, ensuring it is defined.
