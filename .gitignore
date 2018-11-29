@@ -6,8 +6,8 @@
 .vagrant
 Mnesia.*
 _build
-akashita
+credentials.json
 erl_crash.dump
-log
 rebar.lock
 user_env.config
+ssh_config

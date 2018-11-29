@@ -1,7 +1,7 @@
 %% -*- coding: utf-8 -*-
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2016-2017 Nathan Fiedler
+%% Copyright (c) 2016-2018 Nathan Fiedler
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -170,21 +170,22 @@ ensure_snapshot_exists_test(Config) ->
         false ->
             error("missing 'zfs' in PATH");
         _ZfsBin ->
-            PrivDir = ?config(priv_dir, Config),
-            FSFile = filename:join(PrivDir, "tank_file"),
+            % create the datasets for testing; note that with Vagrant we cannot
+            % allocate the file on the shared volume (i.e. priv dir)
+            FSFile = "/mnt/tank_file",
             mkfile(FSFile),
             % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind
             Tank = ?config(tank, Config),
             ?assertCmd("sudo zpool create " ++ Tank ++ " " ++ FSFile),
             AppConfig = [{use_sudo, true}],
             {ok, Snapshot} = akashita:ensure_snapshot_exists("10-14-2005", Tank, AppConfig),
-            Snapshots = ?cmd("sudo zfs list -H -r -t snapshot " ++ Tank ++ "@akashita:10-14-2005"),
+            Snapshots = ?cmd("zfs list -H -r -t snapshot " ++ Tank ++ "@akashita:10-14-2005"),
             [DatasetName|_Rest] = re:split(Snapshots, "\t", [{return, list}]),
             ?assertEqual(Tank ++ "@akashita:10-14-2005", DatasetName),
             % do it again to make sure it does not crash, and returns the same name
             {ok, Snapshot} = akashita:ensure_snapshot_exists("10-14-2005", Tank, AppConfig),
             ?assertCmd("sudo zpool destroy " ++ Tank),
-            ok = file:delete(FSFile)
+            ?assertCmd("sudo rm -f " ++ FSFile)
     end.
 
 % Verify that the split files are all ?SPLIT_SIZE bytes in size, except the
@@ -214,8 +215,9 @@ ensure_clone_exists_test(Config) ->
         false ->
             error("missing 'zfs' in PATH");
         _ZfsBin ->
-            PrivDir = ?config(priv_dir, Config),
-            FSFile = filename:join(PrivDir, "tank_file"),
+            % create the datasets for testing; note that with Vagrant we cannot
+            % allocate the file on the shared volume (i.e. priv dir)
+            FSFile = "/mnt/tank_file",
             mkfile(FSFile),
             Tank = ?config(tank, Config),
             % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind
@@ -224,13 +226,13 @@ ensure_clone_exists_test(Config) ->
             AppConfig = [{use_sudo, true}],
             ok = akashita:ensure_clone_exists(
                 Tank ++ "/parts", Tank ++ "@akashita:10-14-2005", AppConfig),
-            Datasets = ?cmd("sudo zfs list"),
+            Datasets = ?cmd("zfs list"),
             ?assert(string:str(Datasets, Tank ++ "/parts") > 0),
             % do it again to make sure it does not crash
             ok = akashita:ensure_clone_exists(
                 Tank ++ "/parts", Tank ++ "@akashita:10-14-2005", AppConfig),
             ?assertCmd("sudo zpool destroy " ++ Tank),
-            ok = file:delete(FSFile)
+            ?assertCmd("sudo rm -f " ++ FSFile)
     end.
 
 % Test the destroy_dataset/2 function.
@@ -239,8 +241,9 @@ destroy_dataset_test(Config) ->
         false ->
             error("missing 'zfs' in PATH");
         _ZfsBin ->
-            PrivDir = ?config(priv_dir, Config),
-            FSFile = filename:join(PrivDir, "tank_file"),
+            % create the datasets for testing; note that with Vagrant we cannot
+            % allocate the file on the shared volume (i.e. priv dir)
+            FSFile = "/mnt/tank_file",
             mkfile(FSFile),
             Tank = ?config(tank, Config),
             % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind
@@ -248,10 +251,10 @@ destroy_dataset_test(Config) ->
             ?assertCmd("sudo zfs snapshot " ++ Tank ++ "@akashita:10-14-2005"),
             AppConfig = [{use_sudo, true}],
             ok = akashita:destroy_dataset(Tank ++ "@akashita:10-14-2005", AppConfig),
-            Datasets = ?cmd("sudo zfs list"),
+            Datasets = ?cmd("zfs list"),
             ?assertEqual(0, string:str(Datasets, Tank ++ "@akashita:10-14-2005")),
             ?assertCmd("sudo zpool destroy " ++ Tank),
-            ok = file:delete(FSFile)
+            ?assertCmd("sudo rm -f " ++ FSFile)
     end.
 
 % Test the retrieve_tag/0 function.
@@ -290,7 +293,9 @@ process_uploads_test(Config) ->
             error("missing 'zfs' in PATH");
         _ZfsBin ->
             PrivDir = ?config(priv_dir, Config),
-            FSFile = filename:join(PrivDir, "tank_file"),
+            % create the datasets for testing; note that with Vagrant we cannot
+            % allocate the file on the shared volume (i.e. priv dir)
+            FSFile = "/mnt/tank_file",
             mkfile(FSFile),
             Tank = ?config(tank, Config),
             % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind.
@@ -375,7 +380,7 @@ process_uploads_test(Config) ->
                 nomatch -> true
             end),
             ?assertCmd("sudo zpool destroy " ++ Tank),
-            ok = file:delete(FSFile),
+            ?assertCmd("sudo rm -f " ++ FSFile),
             ?assertCmd("sudo rmdir /" ++ Tank)
     end.
 
@@ -387,7 +392,9 @@ process_uploads_live_test(Config) ->
             ok;
         _ZfsBin ->
             PrivDir = ?config(priv_dir, Config),
-            FSFile = filename:join(PrivDir, "tank_file"),
+            % create the datasets for testing; note that with Vagrant we cannot
+            % allocate the file on the shared volume (i.e. priv dir)
+            FSFile = "/mnt/tank_file",
             mkfile(FSFile),
             Tank = ?config(tank, Config),
             % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind.
@@ -447,7 +454,7 @@ process_uploads_live_test(Config) ->
             ?assertEqual(1, length(PhotosObjects)),
             ?assertEqual(<<"photos00000">>, hd(PhotosObjects)),
             ?assertCmd("sudo zpool destroy " ++ Tank),
-            ok = file:delete(FSFile),
+            ?assertCmd("sudo rm -f " ++ FSFile),
             ?assertCmd("sudo rmdir /" ++ Tank)
     end.
 
@@ -469,7 +476,7 @@ mkfile(FSFile) ->
                 false ->
                     error("need either 'mkfile' or 'fallocate' to run tests");
                 FBin ->
-                    ?assertCmd(FBin ++ " -l 64M " ++ FSFile)
+                    ?assertCmd("sudo " ++ FBin ++ " -l 64M " ++ FSFile)
             end;
         MBin ->
             ?assertCmd(MBin ++ " 64m " ++ FSFile)
