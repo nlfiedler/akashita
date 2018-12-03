@@ -1,9 +1,9 @@
 %
 % Configure the application, with optional user overrides.
 %
-% If a file named user_env.config exists at the base of the application
-% tree, then it will be used to override settings in the application
-% environment. For example, if that file contained the following lines:
+% If a file named user_env.config exists in the config directory, then
+% it will be used to override settings in the application environment.
+% For example, if that file contained the following lines:
 %
 % {use_sudo, true},
 % {tmpdir, "/tmp"},
@@ -16,7 +16,7 @@ DefaultEnv = [
     {tmpdir, "/tmp"},
     {split_size, "256K"}
 ].
-AppEnv = case file:consult("user_env.config") of
+AppEnv = case file:consult("config/user_env.config") of
     {ok, Terms} ->
         lists:ukeymerge(1, lists:keysort(1, Terms),  lists:keysort(1, DefaultEnv));
     {error, enoent} ->

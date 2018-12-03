@@ -1,0 +1,10 @@
+version: '3.2'
+
+services:
+  akashita:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    privileged: true
+    stdin_open: true
+    tty: true
