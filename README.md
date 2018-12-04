@@ -61,10 +61,11 @@ The application is easily deployed using [Docker](https://www.docker.com), as
 there is a provided `Dockerfile` and `docker-compose.yml` file for building and
 running the application in Docker.
 
-1. Write a configuration file, named `user_env.config`, at the base of the source tree.
+1. Put a configuration file, named `user_env.config`, in the `config` directory.
     * See `example.config` in the `config` directory.
-1. Build the release: `rebar3 release`
-1. Copy the contents of `_build/default/rel` to the desired installation location.
+1. Craft a "production" Compose file that defines a named volume.
+1. Invoke `docker-compose build` to build the container.
+1. Deploy to the engine as desired.
 
 ## Google Cloud
 

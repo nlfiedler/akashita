@@ -1,10 +1,17 @@
-version: '3.2'
+version: '3.7'
 
 services:
-  akashita:
+  test:
     build:
       context: ..
       dockerfile: docker/Dockerfile
     privileged: true
+    volumes:
+      - type: volume
+        source: mnesia_test
+        target: /mnesia
     stdin_open: true
     tty: true
+
+volumes:
+  mnesia_test:

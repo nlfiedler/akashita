@@ -6,3 +6,6 @@
 
 # make sure we actually shut down when asked
 -shutdown_time 5000
+
+# path to mnesia storage
+-mnesia dir /mnesia

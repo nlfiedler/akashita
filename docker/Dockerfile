@@ -9,11 +9,13 @@ FROM ubuntu:18.04
 
 #
 # We need rebar3, which itself requires Erlang/OTP and git.
+# Also need the build tools to compile the native libraries.
 #
 ENV DEBIAN_FRONTEND noninteractive
 RUN apt-get update
 RUN apt-get -q -y install \
     apt-utils \
+    build-essential \
     erlang \
     git \
     zfsutils-linux
@@ -28,5 +30,7 @@ COPY rebar.config.script .
 COPY src src
 COPY test test
 RUN rebar3 release
+
+VOLUME /mnesia
 
 ENTRYPOINT [ "/bin/bash" ]
