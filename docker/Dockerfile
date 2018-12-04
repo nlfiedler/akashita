@@ -5,7 +5,7 @@
 # This container requires a host with the zfs kernel module.
 # i.e. docker-machine will not suffice, but an Ubuntu VM will.
 #
-FROM ubuntu:18.04
+FROM ubuntu:latest
 
 #
 # We need rebar3, which itself requires Erlang/OTP and git.
