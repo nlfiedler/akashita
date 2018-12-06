@@ -32,5 +32,6 @@ COPY test test
 RUN rebar3 release
 
 VOLUME /mnesia
+VOLUME /akashita
 
 ENTRYPOINT [ "/bin/bash" ]

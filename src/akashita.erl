@@ -208,7 +208,7 @@ ensure_objects(Bucket, Tag, Config) ->
         BucketConf = proplists:get_value(Bucket, BucketList),
         SplitSize = proplists:get_value(split_size, Config, "64M"),
         DefaultExcludes = proplists:get_value(default_excludes, Config, []),
-        create_objects(Bucket, ObjectDir, SplitSize, BucketConf, DefaultExcludes)
+        create_objects(Bucket, ObjectDir, WorkDir, SplitSize, BucketConf, DefaultExcludes)
     end,
     EnsureObjects = fun() ->
         case file:list_dir(ObjectDir) of
@@ -235,17 +235,25 @@ ensure_objects(Bucket, Tag, Config) ->
 % directory, also defined in Options), with the split files having the
 % given Bucket name as a prefix. The split files will be created in the
 % SplitDir directory.
-create_objects(Bucket, SplitDir, SplitSize, Options, DefaultExcludes) ->
+create_objects(Bucket, SplitDir, WorkDir, SplitSize, Options, DefaultExcludes) ->
     lager:info("generating tar files..."),
     Paths = proplists:get_value(paths, Options),
     SourceDir = "/" ++ proplists:get_value(dataset, Options),
+    lager:info("create_objects() SourceDir: ~s", [SourceDir]),
     Compress = proplists:get_bool(compress, Options),
+    lager:info("create_objects() Compress: ~w", [Compress]),
     Exclusions = proplists:get_value(excludes, Options, DefaultExcludes),
+    lager:info("create_objects() Exclusions: ~w", [Exclusions]),
     TarCmd = string:join(tar_cmd(SourceDir, Paths, Compress, Exclusions), " "),
+    lager:info("create_objects() TarCmd: ~s", [TarCmd]),
     SplitCmd = string:join(split_cmd(Bucket, SplitSize), " "),
-    ScriptCmd = generate_tar_split_script(TarCmd, SplitCmd, SplitDir),
+    lager:info("create_objects() SplitCmd: ~s", [SplitCmd]),
+    ScriptCmd = generate_tar_split_script(TarCmd, SplitCmd, SplitDir, WorkDir),
+    lager:info("create_objects() ScriptCmd: ~s", [ScriptCmd]),
     ScriptPort = erlang:open_port({spawn, ScriptCmd}, [exit_status]),
-    {ok, 0} = wait_for_port(ScriptPort),
+    PortResult = wait_for_port(ScriptPort),
+    lager:info("create_objects() PortResult: ~w", [PortResult]),
+    {ok, 0} = PortResult,
     lager:info("tar file creation complete"),
     ok.
 
@@ -285,7 +293,7 @@ split_cmd(Prefix, SplitSize) ->
 % Generate a shell script to change to the given SplitDir, then execute the
 % tar command, piping its output to the split command. Returns the path of
 % the generated shell script.
-generate_tar_split_script(TarCmd, SplitCmd, SplitDir) ->
+generate_tar_split_script(TarCmd, SplitCmd, SplitDir, WorkDir) ->
     % Let the shell do the pipelining for us, as it seems rather difficult
     % to do so in Erlang, without eventually running out of memory. It
     % should use the pipestatus as its own exit code. Note that we return
@@ -303,8 +311,7 @@ generate_tar_split_script(TarCmd, SplitCmd, SplitDir) ->
                 % ensure the last line ends with a newline
                 ""
             ],
-            PrivPath = code:priv_dir(akashita),
-            ScriptPath = filename:join(PrivPath, "tar_split.sh"),
+            ScriptPath = filename:join(WorkDir, "tar_split.sh"),
             {ok, IoDevice} = file:open(ScriptPath, [write]),
             ScriptText = string:join(Cmds, "\n"),
             ok = file:write(IoDevice, list_to_binary(ScriptText)),

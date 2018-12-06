@@ -50,7 +50,10 @@ host$ vagrant ssh
 vagrant$ cd /vagrant
 vagrant$ rebar3 clean
 vagrant$ rebar3 compile
-vagrant$ AKASHITA_LIVE_TEST=1 GCS_REGION='us-west1' GCP_CREDENTIALS=/vagrant/credentials.json rebar3 ct
+vagrant$ sudo fallocate -l 64M /mnt/tank
+vagrant$ sudo zpool create akashita /mnt/tank
+vagrant$ AKASHITA_LIVE_TEST=1 GCS_REGION='us-west1' GCP_CREDENTIALS=/vagrant/credentials.json AKA_TEST_POOL=akashita rebar3 ct
+vagrant$ sudo zpool destroy akashita
 ```
 
 ## Deployment

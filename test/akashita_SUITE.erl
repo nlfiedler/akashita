@@ -42,9 +42,8 @@ init_per_suite(Config) ->
     akashita_app:ensure_schema([node()]),
     ok = application:start(mnesia),
     {ok, _Apps} = application:ensure_all_started(enenra),
-    % Generate a unique ZFS dataset name, ensuring the first character is a
-    % letter, which ZFS requires.
-    Tank = [$a | string:substr(string:to_lower(ulid:generate_list()), 2)],
+    % get the name of the zfs pool we are using for testing
+    Tank = get_env("AKA_TEST_POOL"),
     [{tank, Tank} | Config].
 
 end_per_suite(_Config) ->
@@ -169,14 +168,8 @@ ensure_snapshot_exists_test(Config) ->
     case os:find_executable("zfs") of
         false ->
             error("missing 'zfs' in PATH");
-        _ZfsBin ->
-            % create the datasets for testing; note that with Vagrant we cannot
-            % allocate the file on the shared volume (i.e. priv dir)
-            FSFile = "/mnt/tank_file",
-            mkfile(FSFile),
-            % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind
+        ZfsBin ->
             Tank = ?config(tank, Config),
-            ?assertCmd("sudo zpool create " ++ Tank ++ " " ++ FSFile),
             AppConfig = [{use_sudo, true}],
             {ok, Snapshot} = akashita:ensure_snapshot_exists("10-14-2005", Tank, AppConfig),
             Snapshots = ?cmd("zfs list -H -r -t snapshot " ++ Tank ++ "@akashita:10-14-2005"),
@@ -184,8 +177,7 @@ ensure_snapshot_exists_test(Config) ->
             ?assertEqual(Tank ++ "@akashita:10-14-2005", DatasetName),
             % do it again to make sure it does not crash, and returns the same name
             {ok, Snapshot} = akashita:ensure_snapshot_exists("10-14-2005", Tank, AppConfig),
-            ?assertCmd("sudo zpool destroy " ++ Tank),
-            ?assertCmd("sudo rm -f " ++ FSFile)
+            clean_datasets(ZfsBin, Tank)
     end.
 
 % Verify that the split files are all ?SPLIT_SIZE bytes in size, except the
@@ -214,14 +206,8 @@ ensure_clone_exists_test(Config) ->
     case os:find_executable("zfs") of
         false ->
             error("missing 'zfs' in PATH");
-        _ZfsBin ->
-            % create the datasets for testing; note that with Vagrant we cannot
-            % allocate the file on the shared volume (i.e. priv dir)
-            FSFile = "/mnt/tank_file",
-            mkfile(FSFile),
+        ZfsBin ->
             Tank = ?config(tank, Config),
-            % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind
-            ?assertCmd("sudo zpool create " ++ Tank ++ " " ++ FSFile),
             ?assertCmd("sudo zfs snapshot " ++ Tank ++ "@akashita:10-14-2005"),
             AppConfig = [{use_sudo, true}],
             ok = akashita:ensure_clone_exists(
@@ -231,8 +217,7 @@ ensure_clone_exists_test(Config) ->
             % do it again to make sure it does not crash
             ok = akashita:ensure_clone_exists(
                 Tank ++ "/parts", Tank ++ "@akashita:10-14-2005", AppConfig),
-            ?assertCmd("sudo zpool destroy " ++ Tank),
-            ?assertCmd("sudo rm -f " ++ FSFile)
+            clean_datasets(ZfsBin, Tank)
     end.
 
 % Test the destroy_dataset/2 function.
@@ -240,21 +225,14 @@ destroy_dataset_test(Config) ->
     case os:find_executable("zfs") of
         false ->
             error("missing 'zfs' in PATH");
-        _ZfsBin ->
-            % create the datasets for testing; note that with Vagrant we cannot
-            % allocate the file on the shared volume (i.e. priv dir)
-            FSFile = "/mnt/tank_file",
-            mkfile(FSFile),
+        ZfsBin ->
             Tank = ?config(tank, Config),
-            % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind
-            ?assertCmd("sudo zpool create " ++ Tank ++ " " ++ FSFile),
             ?assertCmd("sudo zfs snapshot " ++ Tank ++ "@akashita:10-14-2005"),
             AppConfig = [{use_sudo, true}],
             ok = akashita:destroy_dataset(Tank ++ "@akashita:10-14-2005", AppConfig),
             Datasets = ?cmd("zfs list"),
             ?assertEqual(0, string:str(Datasets, Tank ++ "@akashita:10-14-2005")),
-            ?assertCmd("sudo zpool destroy " ++ Tank),
-            ?assertCmd("sudo rm -f " ++ FSFile)
+            clean_datasets(ZfsBin, Tank)
     end.
 
 % Test the retrieve_tag/0 function.
@@ -291,16 +269,9 @@ process_uploads_test(Config) ->
     case os:find_executable("zfs") of
         false ->
             error("missing 'zfs' in PATH");
-        _ZfsBin ->
+        ZfsBin ->
             PrivDir = ?config(priv_dir, Config),
-            % create the datasets for testing; note that with Vagrant we cannot
-            % allocate the file on the shared volume (i.e. priv dir)
-            FSFile = "/mnt/tank_file",
-            mkfile(FSFile),
             Tank = ?config(tank, Config),
-            % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind.
-            % Specify a mount point to avoid unexpected defaults (e.g. ZFS on Mac).
-            ?assertCmd("sudo zpool create -m /" ++ Tank ++ " " ++ Tank ++ " " ++ FSFile),
             ?assertCmd("sudo zfs create " ++ Tank ++ "/shared"),
             ?assertCmd("sudo chmod 777 /" ++ Tank ++ "/shared"),
             ?assertCmd("sudo zfs create " ++ Tank ++ "/photos"),
@@ -379,9 +350,7 @@ process_uploads_test(Config) ->
                 {match, _Captured} -> false;
                 nomatch -> true
             end),
-            ?assertCmd("sudo zpool destroy " ++ Tank),
-            ?assertCmd("sudo rm -f " ++ FSFile),
-            ?assertCmd("sudo rmdir /" ++ Tank)
+            clean_datasets(ZfsBin, Tank)
     end.
 
 % Test the full backup process, including uploading content to the cloud.
@@ -390,16 +359,9 @@ process_uploads_live_test(Config) ->
         false ->
             error("missing 'zfs' in PATH"),
             ok;
-        _ZfsBin ->
+        ZfsBin ->
             PrivDir = ?config(priv_dir, Config),
-            % create the datasets for testing; note that with Vagrant we cannot
-            % allocate the file on the shared volume (i.e. priv dir)
-            FSFile = "/mnt/tank_file",
-            mkfile(FSFile),
             Tank = ?config(tank, Config),
-            % ZFS on Mac and Linux both require sudo access, and FreeBSD doesn't mind.
-            % Specify a mount point to avoid unexpected defaults (e.g. ZFS on Mac).
-            ?assertCmd("sudo zpool create -m /" ++ Tank ++ " " ++ Tank ++ " " ++ FSFile),
             ?assertCmd("sudo zfs create " ++ Tank ++ "/shared"),
             ?assertCmd("sudo chmod 777 /" ++ Tank ++ "/shared"),
             ?assertCmd("sudo zfs create " ++ Tank ++ "/photos"),
@@ -453,9 +415,7 @@ process_uploads_live_test(Config) ->
             PhotosObjects = list_bucket(PhotosRemoteName),
             ?assertEqual(1, length(PhotosObjects)),
             ?assertEqual(<<"photos00000">>, hd(PhotosObjects)),
-            ?assertCmd("sudo zpool destroy " ++ Tank),
-            ?assertCmd("sudo rm -f " ++ FSFile),
-            ?assertCmd("sudo rmdir /" ++ Tank)
+            clean_datasets(ZfsBin, Tank)
     end.
 
 % Retrieve an environment variable, ensuring it is defined.
@@ -465,23 +425,6 @@ get_env(Name) ->
             error(lists:flatten(io_lib:format("must define ~p environment variable", [Name])));
         Value -> Value
     end.
-
-% Run the mkfile command (or its Linux equivalent) to create a temporary
-% filesytem for ZFS to use as a storage pool.
-mkfile(FSFile) ->
-    case os:find_executable("mkfile") of
-        false ->
-            % Hipster Linux doesn't use your grandfather's mkfile...
-            case os:find_executable("fallocate") of
-                false ->
-                    error("need either 'mkfile' or 'fallocate' to run tests");
-                FBin ->
-                    ?assertCmd("sudo " ++ FBin ++ " -l 64M " ++ FSFile)
-            end;
-        MBin ->
-            ?assertCmd(MBin ++ " 64m " ++ FSFile)
-    end,
-    ok.
 
 wait_for_backup_to_finish() ->
     receive
@@ -503,3 +446,56 @@ bucket_regex(Bucket, Tag) ->
     % ULID string representation is 26 characters long.
     {ok, MP} = re:compile("bucket \\w{26}-" ++ Bucket ++ "-" ++ Tag ++ " created"),
     MP.
+
+% Find the child datasets and remove them.
+clean_datasets(ZfsBin, DataSet) ->
+    ListPort = erlang:open_port(
+        {spawn_executable, ZfsBin},
+        [exit_status, {args, ["list", "-Hro", "name", DataSet]}]),
+    {ok, 0, ListOutput} = wait_for_port(ListPort),
+    SplitOutput = re:split(ListOutput, "\n", [{return, list}]),
+    Children = lists:filter(fun(Line) -> string:chr(Line, $/) > 0 end, SplitOutput),
+    lists:foreach(fun(Name) -> ?assertCmd("sudo zfs destroy -r " ++ Name) end, Children),
+    clean_snapshots(ZfsBin, DataSet).
+
+% Find the child snapshots and remove them.
+clean_snapshots(ZfsBin, DataSet) ->
+    ListPort = erlang:open_port(
+        {spawn_executable, ZfsBin},
+        [exit_status, {args, ["list", "-t", "snapshot", "-Hro", "name", DataSet]}]),
+    {ok, 0, ListOutput} = wait_for_port(ListPort),
+    SplitOutput = re:split(ListOutput, "\n", [{return, list}]),
+    Children = lists:filter(fun(Line) -> length(Line) > 0 end, SplitOutput),
+    lists:foreach(fun(Name) -> ?assertCmd("sudo zfs destroy -r " ++ Name) end, Children).
+
+% Wait for the given Port to complete and return the exit code in the form
+% of {ok, Status}. Any output received is written to the log. If the port
+% experiences an error, returns {error, Reason}.
+wait_for_port(Port) ->
+    wait_for_port(Port, false, []).
+
+% Wait for the given Port to complete and return the exit code in the form
+% of {ok, Status}. Any output received is written to the log. If the port
+% experiences an error, returns {error, Reason}. If Quiet is true, output
+% from the port is not logged.
+wait_for_port(Port, Quiet, Output) when is_boolean(Quiet) ->
+    receive
+        {Port, {exit_status, Status}} ->
+            ensure_port_closed(Port),
+            {ok, Status, Output};
+        {Port, {data, Data}} ->
+            if Quiet -> lager:warning("output from port ignored...");
+                true -> lager:warning("received output from port: ~s", [Data])
+            end,
+            wait_for_port(Port, Quiet, Output ++ Data);
+        {'EXIT', Port, Reason} ->
+            lager:info("port ~w exited, ~w", [Port, Reason]),
+            {error, Reason}
+    end.
+
+% Ensure that the given Port has been properly closed.
+ensure_port_closed(Port) ->
+    case erlang:port_info(Port) of
+        undefined -> ok;
+        _ -> erlang:port_close(Port)
+    end.

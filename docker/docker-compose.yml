@@ -8,10 +8,14 @@ services:
     privileged: true
     volumes:
       - type: volume
-        source: mnesia_test
+        source: akashita_mnesia
         target: /mnesia
+      - type: volume
+        source: akashita_tmp
+        target: /akashita
     stdin_open: true
     tty: true
 
 volumes:
-  mnesia_test:
+  akashita_mnesia:
+  akashita_tmp:
