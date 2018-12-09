@@ -1,7 +1,7 @@
 %% -*- coding: utf-8 -*-
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2016 Nathan Fiedler
+%% Copyright (c) 2016-2018 Nathan Fiedler
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -133,7 +133,7 @@ ensure_snapshot_exists(Name, Dataset, Config) ->
     Snapshot = io_lib:format("~s@akashita:~s", [Dataset, Name]),
     case os:find_executable("zfs") of
         false ->
-            lager:info("missing 'zfs' in PATH"),
+            lager:error("missing 'zfs' in PATH"),
             error(missing_zfs);
         ZfsBin ->
             ListPort = add_sudo_if_needed(ZfsBin, ["list", "-H", Snapshot], Config),
@@ -155,7 +155,7 @@ ensure_snapshot_exists(Name, Dataset, Config) ->
 ensure_clone_exists(Clone, Snapshot, Config) ->
     case os:find_executable("zfs") of
         false ->
-            lager:info("missing 'zfs' in PATH"),
+            lager:error("missing 'zfs' in PATH"),
             error(missing_zfs);
         ZfsBin ->
             ListPort = add_sudo_if_needed(ZfsBin, ["list", "-H", Clone], Config),
@@ -185,7 +185,7 @@ ensure_clone_exists(Clone, Snapshot, Config) ->
 destroy_dataset(Dataset, Config) ->
     case os:find_executable("zfs") of
         false ->
-            lager:info("missing 'zfs' in PATH"),
+            lager:error("missing 'zfs' in PATH"),
             error(missing_zfs);
         ZfsBin ->
             % destroying a dataset may require sudo
@@ -239,20 +239,13 @@ create_objects(Bucket, SplitDir, WorkDir, SplitSize, Options, DefaultExcludes) -
     lager:info("generating tar files..."),
     Paths = proplists:get_value(paths, Options),
     SourceDir = "/" ++ proplists:get_value(dataset, Options),
-    lager:info("create_objects() SourceDir: ~s", [SourceDir]),
     Compress = proplists:get_bool(compress, Options),
-    lager:info("create_objects() Compress: ~w", [Compress]),
     Exclusions = proplists:get_value(excludes, Options, DefaultExcludes),
-    lager:info("create_objects() Exclusions: ~w", [Exclusions]),
     TarCmd = string:join(tar_cmd(SourceDir, Paths, Compress, Exclusions), " "),
-    lager:info("create_objects() TarCmd: ~s", [TarCmd]),
     SplitCmd = string:join(split_cmd(Bucket, SplitSize), " "),
-    lager:info("create_objects() SplitCmd: ~s", [SplitCmd]),
     ScriptCmd = generate_tar_split_script(TarCmd, SplitCmd, SplitDir, WorkDir),
-    lager:info("create_objects() ScriptCmd: ~s", [ScriptCmd]),
     ScriptPort = erlang:open_port({spawn, ScriptCmd}, [exit_status]),
     PortResult = wait_for_port(ScriptPort),
-    lager:info("create_objects() PortResult: ~w", [PortResult]),
     {ok, 0} = PortResult,
     lager:info("tar file creation complete"),
     ok.
@@ -300,7 +293,7 @@ generate_tar_split_script(TarCmd, SplitCmd, SplitDir, WorkDir) ->
     % the PIPESTATUS, which requires using bash.
     case os:find_executable("bash", "/bin:/usr/bin:/usr/local/bin") of
         false ->
-            lager:info("cannot find 'bash' in /bin:/usr/bin:/usr/local/bin"),
+            lager:error("cannot find 'bash' in /bin:/usr/bin:/usr/local/bin"),
             error(missing_bash);
         Bash ->
             Cmds = [
@@ -362,7 +355,7 @@ add_sudo_if_needed(Cmd, Args, Config) ->
         true ->
             case os:find_executable("sudo") of
                 false ->
-                    lager:info("missing 'sudo' in PATH"),
+                    lager:error("missing 'sudo' in PATH"),
                     error(missing_sudo);
                 SudoBin ->
                     erlang:open_port({spawn_executable, SudoBin},

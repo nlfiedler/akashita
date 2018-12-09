@@ -1,7 +1,7 @@
 %% -*- coding: utf-8 -*-
 %% -------------------------------------------------------------------
 %%
-%% Copyright (c) 2016 Nathan Fiedler
+%% Copyright (c) 2016-2018 Nathan Fiedler
 %%
 %% This file is provided to you under the Apache License,
 %% Version 2.0 (the "License"); you may not use this file
@@ -40,6 +40,8 @@ start_link() ->
 %%
 init([]) ->
     Bucket = next_eligible_bucket(),
+    Tag = akashita_app:retrieve_tag(),
+    lager:info("will use tag ~s and process bucket ~s", [Tag, Bucket]),
     {ok, TRef} = start_timer(),
     State = #state{timer=TRef, bucket=Bucket},
     {ok, State}.
@@ -194,6 +196,7 @@ process_one_object(Bucket) ->
             FilePath = filename:join(ObjectDir, Filename),
             {Time, ok} = timer:tc(akashita, upload_object, [FilePath, BucketName]),
             lager:info("file ~s uploaded in ~.2f minutes", [Filename, Time / 60000000]),
+            lager:info("objects remaining: ~B", [length(Rest)]),
             ok = file:delete(FilePath),
             case length(Rest) of
                 0 ->
