@@ -12,13 +12,8 @@ FROM ubuntu:latest
 # Also need the build tools to compile the native libraries.
 #
 ENV DEBIAN_FRONTEND noninteractive
-RUN apt-get update
-RUN apt-get -q -y install \
-    apt-utils \
-    build-essential \
-    erlang \
-    git \
-    zfsutils-linux
+RUN apt-get -q update && \
+    apt-get -q -y install apt-utils build-essential erlang git zfsutils-linux
 ADD https://github.com/erlang/rebar3/releases/download/3.7.4/rebar3 /bin/rebar3
 RUN chmod +x /bin/rebar3
 
