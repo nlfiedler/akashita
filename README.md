@@ -9,7 +9,7 @@ with high-demand Internet services. The storage class used is hard-coded to
 
 ## Requirements
 
-* [Erlang/OTP](http://www.erlang.org) R19 or higher
+* [Erlang/OTP](http://www.erlang.org) R19
 * [rebar3](https://github.com/erlang/rebar3/) 3.0.0 or higher
 
 ## Building and Testing
@@ -37,8 +37,8 @@ account credentials, as described in the **Google Cloud** section below.
 
 Unfortunately, a Docker container does not have sufficient privileges to create
 or destroy ZFS pools, but it can do just about everything else. As such, testing
-can be done within a VM, but not within a container. The test suite itself is
-rather delicate and specific to testing on Ubuntu in a VM. Use
+should be done within a VM instead of a container. In fact, the test suite
+itself is rather delicate and specific to testing on Ubuntu in a VM. Use
 [Vagrant](https://www.vagrantup.com) and [Fabric](http://www.fabfile.org) 1.x to
 set up the VM.
 
@@ -56,19 +56,36 @@ vagrant$ AKASHITA_LIVE_TEST=1 GCS_REGION='us-west1' GCP_CREDENTIALS=/vagrant/cre
 vagrant$ sudo zpool destroy akashita
 ```
 
-## Deployment
+## Deploying
 
-### Docker
+### Using Docker
 
-The application is easily deployed using [Docker](https://www.docker.com), as
-there is a provided `Dockerfile` and `docker-compose.yml` file for building and
-running the application in Docker.
+The base directory contains a `docker-compose.yml` file which is used to build
+the application as a Docker container.
 
-1. Put a configuration file, named `user_env.config`, in the `config` directory.
-    * See `example.config` in the `config` directory.
-1. Craft a "production" Compose file that defines a named volume.
-1. Invoke `docker-compose build` to build the container.
-1. Deploy to the engine as desired.
+Customization, to be done on the build host, prior to building:
+
+```shell
+$ cp your_akashita.config config/user_env.config
+$ cp your_credentials.json config/credentials.json
+```
+
+On the build host (and where `192.168.1.1:5000` is your docker registry):
+
+```shell
+$ docker-compose build
+$ docker image rm 192.168.1.1:5000/akashita_app
+$ docker image tag akashita_app 192.168.1.1:5000/akashita_app
+$ docker push 192.168.1.1:5000/akashita_app
+```
+
+On the server, with a production version of the `docker-compose.yml` file:
+
+```shell
+$ docker-compose pull
+$ docker-compose rm -f -s
+$ docker-compose up -d
+```
 
 ## Google Cloud
 
@@ -102,8 +119,15 @@ running the application in Docker.
 
 #### Debugging
 
-Files within `.config/gcloud/`, as well as the `.gsutil/credstore` file, inform the client library as to how to connect to the Google Cloud Platform. Move these files out of the way when attempting to use the `GOOGLE_APPLICATION_CREDENTIALS` environment variable.
+Files within `.config/gcloud/`, as well as the `.gsutil/credstore` file, inform
+the client library as to how to connect to the Google Cloud Platform. Move these
+files out of the way when attempting to use the `GOOGLE_APPLICATION_CREDENTIALS`
+environment variable.
 
 ## Amazon Glacier
 
-At an earlier time, this project was coded to upload files to Amazon Glacier. It was decided that Google Cloud Storage was a better option, primarily due to the responsiveness and affordability of the "nearline" storage class. The last commit in which this project supported Glacier is `4711edb7af7f9f8bd8a065c78abf8f12ded1c29f`.
+At an earlier time, this project was coded to upload files to Amazon Glacier. It
+was decided that Google Cloud Storage was a better option, primarily due to the
+responsiveness and affordability of the "nearline" storage class. The last
+commit in which this project supported Glacier is
+`4711edb7af7f9f8bd8a065c78abf8f12ded1c29f`.

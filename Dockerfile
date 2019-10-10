@@ -3,7 +3,7 @@
 # It is trivial to add a recent Erlang/OTP as well.
 #
 # This container requires a host with the zfs kernel module.
-# i.e. docker-machine will not suffice, but an Ubuntu VM will.
+# i.e. Docker Desktop will not suffice, but an Ubuntu VM will.
 #
 FROM ubuntu:latest
 
@@ -14,10 +14,10 @@ FROM ubuntu:latest
 ENV DEBIAN_FRONTEND noninteractive
 RUN apt-get -q update && \
     apt-get -q -y install apt-utils build-essential erlang git zfsutils-linux
-ADD https://github.com/erlang/rebar3/releases/download/3.7.4/rebar3 /bin/rebar3
+ADD https://s3.amazonaws.com/rebar3/rebar3 /bin/rebar3
 RUN chmod +x /bin/rebar3
 
-WORKDIR /work
+WORKDIR /working
 
 COPY config config
 COPY rebar.config .

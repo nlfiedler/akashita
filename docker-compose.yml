@@ -1,10 +1,9 @@
 version: '3.7'
 
 services:
-  test:
+  app:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile
+      context: .
     privileged: true
     volumes:
       - type: volume
@@ -13,8 +12,6 @@ services:
       - type: volume
         source: akashita_tmp
         target: /akashita
-    stdin_open: true
-    tty: true
 
 volumes:
   akashita_mnesia:
